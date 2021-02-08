@@ -27,7 +27,7 @@ const config: HardhatUserConfig = {
     flat: true,
   },
   spdxLicenseIdentifier: {
-    overwrite: true,
+    overwrite: false,
     runOnCompile: true,
   },
   namedAccounts: {

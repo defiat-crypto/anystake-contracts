@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MIT
 
-
-
 pragma solidity ^0.6.0;
 
 import "../../@openzeppelin/token/ERC20/IERC20.sol";
@@ -10,10 +8,8 @@ import "../../@openzeppelin/access/Ownable.sol";
 abstract contract DeFiatUtils is Ownable {
     event TokenSweep(address indexed user, address indexed token, uint256 amount);
 
-    mapping (address => bool) private _unsweepable; // mapping of tokens that admins cannot withdraw
-
     // Sweep any tokens/ETH accidentally sent or airdropped to the contract
-    function sweep(address token) external onlyOwner {
+    function sweep(address token) external virtual onlyOwner {
         uint256 amount = IERC20(token).balanceOf(address(this));
         require(amount > 0, "Sweep: No token balance");
 
@@ -25,17 +21,6 @@ abstract contract DeFiatUtils is Ownable {
 
         emit TokenSweep(msg.sender, token, amount);
     }
-
-    // 
-    function unsweepable(address _token)
-        public
-        view
-        returns (bool)
-    {
-        return _unsweepable[_token];
-    }
-
-
 
     // Self-Destruct contract to free space on-chain, sweep any ETH to owner
     function kill() external onlyOwner {

@@ -31,8 +31,6 @@ const func: DeployFunction = async ({
   });
 
   if (result.newlyDeployed) {
-    // let governance: DeFiatGov;
-    // let points: DeFiatPoints;
     const governance = (await ethers.getContract(
       "DeFiatGov",
       mastermind
@@ -41,17 +39,6 @@ const func: DeployFunction = async ({
       "DeFiatPoints",
       mastermind
     )) as DeFiatPoints;
-
-    // governance = (await ethers.getContractAt(
-    //   GovAbi,
-    //   gov,
-    //   deployer
-    // )) as DeFiatGov;
-    // points = (await ethers.getContractAt(
-    //   PointsAbi,
-    //   dftp,
-    //   deployer
-    // )) as DeFiatPoints;
 
     const vault = (await ethers.getContract(
       "AnyStakeVault",
