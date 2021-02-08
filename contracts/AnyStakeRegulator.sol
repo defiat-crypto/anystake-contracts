@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 
+
+
 pragma solidity ^0.6.0;
 
-import "./lib/@defiat/interfaces/IDeFiatPoints.sol";
+import "./lib/@defiat-crypto/interfaces/IDeFiatPoints.sol";
 import "./interfaces/IAnyStakeRegulator.sol";
 import "./interfaces/IAnyStakeVault.sol";
 import "./utils/AnyStakeUtils.sol";

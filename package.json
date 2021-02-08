@@ -1,12 +1,40 @@
 {
-  "name": "@defiat/anystake-contracts",
+  "name": "@defiat-crypto/anystake-contracts",
   "version": "1.0.0",
+  "license": "MIT",
+  "homepage": "https://defiat.net",
+  "author": {
+    "name": "DeFiat",
+    "email": "hello@defiat.net"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/defiat-crypto/anystake-contracts"
+  },
+  "keywords": [
+    "defiat",
+    "ethereum",
+    "solidity",
+    "defi"
+  ],
+  "files": [
+    "contracts",
+    "typechain",
+    "build/abi",
+    "build/artifacts",
+    "build/deploy"
+  ],
   "scripts": {
+    "bump:minor": "yarn version --minor",
+    "bump:major": "yarn version --major",
+    "release": "yarn publish --access public",
+    "build": "hardhat compile && tsc",
     "compile": "hardhat compile",
     "dev": "hardhat node --watch",
     "test": "hardhat test"
   },
   "devDependencies": {
+    "@defiat-crypto/core-contracts": "^1.3.0",
     "@ethereum-waffle/chai": "^3.2.2",
     "@openzeppelin/contracts": "^3.3.0",
     "@typechain/ethers-v5": "^5.0.0",
@@ -22,6 +50,7 @@
     "hardhat-abi-exporter": "^2.0.7",
     "hardhat-deploy": "^0.7.0-beta.44",
     "hardhat-deploy-ethers": "^0.3.0-beta.7",
+    "hardhat-spdx-license-identifier": "^2.0.3",
     "hardhat-typechain": "^0.3.4",
     "solc": "0.6.6",
     "ts-generator": "^0.1.1",

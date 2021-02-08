@@ -1,20 +1,23 @@
 import { BigNumber, BigNumberish } from "ethers";
 import { ethers, deployments, getNamedAccounts } from "hardhat";
-// import IERC20Abi from "../abi/IERC20.json";
-// import IUniswapV2PairAbi from "../abi/IUniswapV2Pair.json";
-// import IUniswapV2Router02Abi from "../abi/IUniswapV2Router02.json";
-// import IWETHAbi from "../abi/IWETH.json";
+import IERC20Abi from "../build/abi/IERC20.json";
+import IUniswapV2PairAbi from "../build/abi/IUniswapV2Pair.json";
+import IUniswapV2Router02Abi from "../build/abi/IUniswapV2Router02.json";
+import IWETHAbi from "../build/abi/IWETH.json";
 import {
   AnyStake,
   AnyStakeRegulator,
   AnyStakeVault,
-  DeFiatGov,
-  DeFiatPoints,
-  DeFiatToken,
   IERC20,
   IUniswapV2Router02,
   IWETH,
 } from "../typechain";
+import {
+  DeFiatGov,
+  DeFiatPoints,
+  DeFiatToken,
+  // IWETH,
+} from "@defiat-crypto/core-contracts/typechain";
 
 export const tokens = [
   { address: "", amount: "" },
@@ -27,7 +30,7 @@ export const tokens = [
 export const setupTest = deployments.createFixture(async (hre, options) => {
   await deployments.fixture();
 
-  const { deployer, alpha, beta } = await getNamedAccounts();
+  const { deployer, alpha, beta, usdc, core } = await getNamedAccounts();
   const DFT = (await ethers.getContract(
     "DeFiatToken",
     deployer
@@ -47,7 +50,7 @@ export const setupTest = deployments.createFixture(async (hre, options) => {
     deployer
   )) as AnyStakeRegulator;
 
-  await setup(deployer, alpha, DFT, DFTP);
+  await setup(deployer, alpha, usdc, core, DFT, DFTP);
 
   return {
     deployer,
@@ -65,6 +68,8 @@ export const setupTest = deployments.createFixture(async (hre, options) => {
 const setup = async (
   deployer: string,
   alpha: string,
+  usdc: string,
+  core: string,
   DFT: DeFiatToken,
   DFTP: DeFiatPoints
 ) => {
@@ -96,8 +101,8 @@ const setup = async (
   console.log("deposit eth for weth");
 
   // buy USDC and CORE test tokens
-  await buyToken(USDC, ethers.utils.parseEther("10"), alpha);
-  await buyToken(CORE, ethers.utils.parseEther("10"), alpha);
+  await buyToken(usdc, ethers.utils.parseEther("10"), alpha);
+  await buyToken(core, ethers.utils.parseEther("10"), alpha);
   console.log("buy test tokens");
 };
 
@@ -172,9 +177,10 @@ const depositForWeth = async (signer: string, value: BigNumberish) => {
 };
 
 const getRouter = async (signer: string) => {
+  const { uniswap } = await getNamedAccounts();
   return (await ethers.getContractAt(
     IUniswapV2Router02Abi,
-    UNISWAP_ROUTER,
+    uniswap,
     signer
   )) as IUniswapV2Router02;
 };

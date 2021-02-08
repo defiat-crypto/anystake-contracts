@@ -3,6 +3,7 @@ import { HardhatUserConfig, task } from "hardhat/config";
 import "hardhat-deploy";
 import "hardhat-deploy-ethers";
 import "hardhat-abi-exporter";
+import "hardhat-spdx-license-identifier";
 import "hardhat-typechain";
 
 task("accounts", "Prints the list of accounts", async (args, hre) => {
@@ -15,6 +16,20 @@ task("accounts", "Prints the list of accounts", async (args, hre) => {
 
 const config: HardhatUserConfig = {
   solidity: "0.6.6",
+  paths: {
+    artifacts: "./build/artifacts",
+    cache: "./build/cache",
+    deployments: "./build/deployments",
+  },
+  abiExporter: {
+    path: "./build/abi",
+    clear: true,
+    flat: true,
+  },
+  spdxLicenseIdentifier: {
+    overwrite: true,
+    runOnCompile: true,
+  },
   namedAccounts: {
     mastermind: 0, //"0x4F4B49E7f3661652F13A6D2C86d9Af4435414721",
     governor: 1,
@@ -29,7 +44,7 @@ const config: HardhatUserConfig = {
       31337: "0x0165878A594ca255338adfa4d48449f69242Eb8F",
     },
     points: {
-      1: "",
+      1: "0xeB23dF02AB127aF9249227441BC4Df4d5230f02A",
       4: "0x70c7d7856e1558210cfbf27b7f17853655752453",
       31337: "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
     },
@@ -39,21 +54,21 @@ const config: HardhatUserConfig = {
       31337: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     },
   },
-  abiExporter: {
-    clear: true,
-    flat: true,
+  external: {
+    contracts: [
+      {
+        artifacts: "node_modules/@defiat-crypto/core-contracts/build/artifacts",
+        deploy: "node_modules/@defiat-crypto/core-contracts/build/deploy",
+      },
+    ],
   },
+  defaultNetwork: "hardhat",
   networks: {
     hardhat: {
-      // accounts: [
-      //   {
-      //     privateKey: `0x${process.env.DEPLOYER_PRIVATE_KEY}`,
-      //     balance: "10000000000000000000000"
-      //   }
-      // ],
       forking: {
-        blockNumber: 11768005,
-        url: process.env.ALCHEMY_MAIN_DEV_KEY || "",
+        blockNumber: 11812500,
+        url: process.env.ALCHEMY_MAIN_PROD_KEY || "",
+        enabled: true,
       },
     },
     localhost: {

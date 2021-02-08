@@ -9,11 +9,7 @@ yarn.lock
 /coverage
 
 # production
-/abi
-/artifacts
-/cache
 /build
-/deployments
 /typechain
 
 # misc

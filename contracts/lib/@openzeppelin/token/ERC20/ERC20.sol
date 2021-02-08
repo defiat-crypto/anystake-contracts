@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 
+
+
 pragma solidity >=0.6.0 <0.8.0;
 
 import "../../utils/Context.sol";
@@ -9,7 +11,7 @@ import "../../math/SafeMath.sol";
 contract ERC20 is Context, IERC20 {
     using SafeMath for uint256;
 
-    mapping (address => uint256) internal _balances;
+    mapping (address => uint256) private _balances;
 
     mapping (address => mapping (address => uint256)) private _allowances;
 

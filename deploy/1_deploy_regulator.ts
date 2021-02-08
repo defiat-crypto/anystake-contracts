@@ -1,5 +1,5 @@
 import { DeployFunction } from "hardhat-deploy/types";
-import { DeFiatGov } from "../typechain";
+import { DeFiatPoints } from "@defiat-crypto/core-contracts/typechain";
 
 const func: DeployFunction = async ({
   getNamedAccounts,
@@ -8,24 +8,23 @@ const func: DeployFunction = async ({
   network,
 }) => {
   const { deploy } = deployments;
-  const { mastermind, uniswap, token, points } = await getNamedAccounts();
+  const { mastermind, uniswap, gov, points, token } = await getNamedAccounts();
 
   const result = await deploy("AnyStakeRegulator", {
     from: mastermind,
     log: true,
-    args: [uniswap, token, points],
+    args: [uniswap, gov, points, token],
   });
 
   if (result.newlyDeployed) {
-    const governance = (await ethers.getContract(
-      "DeFiatGov",
-      mastermind
-    )) as DeFiatGov;
-
-    await governance.setActorLevel(result.address, 2).then((tx) => tx.wait());
-    console.log("Regulator Governance successfully configured.");
-
     // whitelist the Regulator contract for DFT fees
+
+    const points = (await ethers.getContract(
+      "DeFiatPoints",
+      mastermind
+    )) as DeFiatPoints;
+
+    await points.overrideDiscount(result.address, 100).then((tx) => tx.wait());
   }
 };
 

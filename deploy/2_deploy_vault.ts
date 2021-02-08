@@ -1,12 +1,10 @@
 import { DeployFunction } from "hardhat-deploy/types";
+import { AnyStake, AnyStakeRegulator, AnyStakeVault } from "../typechain";
 import {
-  AnyStake,
-  AnyStakeRegulator,
-  AnyStakeVault,
   DeFiatGov,
   DeFiatPoints,
   DeFiatToken,
-} from "../typechain";
+} from "@defiat-crypto/core-contracts/typechain";
 
 const func: DeployFunction = async ({
   getNamedAccounts,
@@ -29,13 +27,12 @@ const func: DeployFunction = async ({
   const result = await deploy("AnyStakeVault", {
     from: mastermind,
     log: true,
-    args: [uniswap, token, points, anystake.address, regulator.address],
+    args: [uniswap, gov, points, token, anystake.address, regulator.address],
   });
 
   if (result.newlyDeployed) {
     // let governance: DeFiatGov;
     // let points: DeFiatPoints;
-
     const governance = (await ethers.getContract(
       "DeFiatGov",
       mastermind
@@ -62,27 +59,16 @@ const func: DeployFunction = async ({
     )) as AnyStakeVault;
 
     // set the Vault as DFT Treasury destination and governor
-    await governance.setFeeDestination(vault.address).then((tx) => tx.wait());
-    await governance.setActorLevel(vault.address, 2).then((tx) => tx.wait());
-    console.log(
-      "Vault Successfully Registered as Fee Destination and Governor"
-    );
-
     // whitelist the Anystake contracts for 0 DFT fees
-    await points.overrideDiscount(vault.address, 100).then((tx) => tx.wait());
-    await points
-      .overrideDiscount(anystake.address, 100)
-      .then((tx) => tx.wait());
-    await points
-      .overrideDiscount(regulator.address, 100)
-      .then((tx) => tx.wait());
+    await governance.setFeeDestination(result.address).then((tx) => tx.wait());
+    await points.overrideDiscount(result.address, 100).then((tx) => tx.wait());
     console.log("AnyStake Ecosystem now whitelisted for DFT transfers");
 
     // initialize the other contracts now
-    await anystake.initialize(vault.address).then((tx) => tx.wait());
+    await anystake.initialize(result.address).then((tx) => tx.wait());
     console.log("AnyStake Successfully Initialized.");
 
-    await regulator.initialize(vault.address).then((tx) => tx.wait());
+    await regulator.initialize(result.address).then((tx) => tx.wait());
     console.log("Regulator Successfully Initialized");
   }
 };
