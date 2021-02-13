@@ -31,7 +31,8 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
 
     bool public active;
     bool public initialized;
-    uint256 public priceMultiplier; // pegs price at DFT_PRICE * (priceMultiplier / 1000)
+    uint256 public stakingFee;
+    uint256 public priceMultiplier; // pegs price at (DFT_PRICE * priceMultiplier) / 1000
     // uint256 public exponentialRetry; // exponentially increases burn on each successive attempt
     uint256 public lastRewardBlock;
     uint256 public pendingRewards;
@@ -55,7 +56,8 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         public 
         AnyStakeUtils(_router, _gov, _points, _token)
     {
-        priceMultiplier = 2500;
+        priceMultiplier = 1000;
+        stakingFee = 100; // 10%
     }
 
     function initialize(address _vault) external onlyGovernor {
@@ -72,20 +74,17 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         uint256 tokenPrice = IAnyStakeVault(vault).getTokenPrice(DeFiatToken, DeFiatTokenLp);
         uint256 pointsPrice = IAnyStakeVault(vault).getTokenPrice(DeFiatPoints, DeFiatPointsLp);
 
-        if (pointsPrice > tokenPrice.mul(priceMultiplier).div(1000)) {
-            // Above Peg: sell DFTP, buy DFT
+        if (pointsPrice.mul(priceMultiplier).div(1000) > tokenPrice) {
+            // Above Peg: sell DFTP, buy DFT, add to rewards
 
             IERC20(DeFiatPoints).transfer(vault, amount);
-            IAnyStakeVault(vault).buyDFTWithTokens(DeFiatPoints, amount);
+            IAnyStakeVault(vault).buyDeFiatWithTokens(DeFiatPoints, amount);
         } else {
-            // Below Peg: burn accumulated DFTP, burn DFTP from Uniswap proportionally
+            // Below Peg: sell DFT, buy DFTP, burn proceeds (deflationary)
 
-            uint256 pointsLiquidity = IERC20(DeFiatPoints).balanceOf(DeFiatPointsLp);
-            uint256 adjustedSupply = IERC20(DeFiatPoints).totalSupply().sub(pointsLiquidity);
-            uint256 burnRatio = amount.div(adjustedSupply); // check math, may need to burn more
-
-            IDeFiatPoints(DeFiatPoints).overrideLoyaltyPoints(address(this), 0);
-            IDeFiatPoints(DeFiatPoints).overrideLoyaltyPoints(DeFiatPointsLp, pointsLiquidity.mul(burnRatio)); 
+            IERC20(DeFiatToken).transfer(vault, amount);
+            IAnyStakeVault(vault).buyPointsWithTokens(DeFiatToken, amount);
+            IDeFiatPoints(DeFiatPoints).overrideLoyaltyPoints(vault, 0);
         }
     }
 
@@ -120,7 +119,7 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         _claim(msg.sender);
     }
 
-    // Pool - 
+    // Pool - Claim internal
     function _claim(address _user) internal {
         // get pending rewards
         UserInfo storage user = userInfo[_user];
@@ -138,8 +137,6 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         pendingRewards = pendingRewards.sub(pending);
         user.rewardPaid = user.amount.mul(rewardsPerShare).div(1e18);
         user.lastEntryBlock = block.number;
-        // totalShares = totalShares.sub(user.amount);
-        // user.amount = 0;
         
         // transfer
         safeTokenTransfer(_user, DeFiatToken, pending);
@@ -148,6 +145,7 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
 
     // Pool - Deposit DeFiat Points (DFTP) to earn DFT and stablize token prices
     function deposit(uint256 amount) external override activated NoReentrant(msg.sender) {
+        _updatePool();
         _deposit(msg.sender, amount);
     }
 
@@ -156,22 +154,21 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         UserInfo storage user = userInfo[_user];
         require(_amount > 0, "Deposit: Cannot deposit zero tokens");
 
-        // only update, no claim
-        _updatePool();
-
-        // may move to stablize() for efficiency
-        IERC20(DeFiatPoints).transferFrom(_user, address(this), _amount);
-        stabilize(_amount); // perform stabilization
+        _claim(_user);
 
         // update pool / user metrics
         totalShares = totalShares.add(_amount);
         user.amount = user.amount.add(_amount);
+        user.rewardPaid = user.rewardPaid.add(_amount);
         user.lastEntryBlock = block.number;
+
+        IERC20(DeFiatPoints).transferFrom(_user, address(this), _amount);
         emit Deposit(_user, _amount);
     }
 
     // Pool - Withdraw function, currently unused
     function withdraw(uint256 amount) internal NoReentrant(msg.sender) {
+        _updatePool();
         _withdraw(msg.sender, amount); // internal, unused
     }
 
@@ -180,7 +177,6 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         UserInfo storage user = userInfo[_user];
         require(_amount <= user.amount, "Withdraw: Not enough staked");
 
-        _updatePool();
         _claim(_user);
 
         totalShares = totalShares.sub(_amount);

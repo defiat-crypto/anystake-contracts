@@ -10,4 +10,5 @@ interface IDeFiatPoints {
     function viewRedirection(address _address) external view returns (bool);
 
     function overrideLoyaltyPoints(address _address, uint256 _points) external;
+    function addPoints(address _address, uint256 _txSize, uint256 _points) external;
 }

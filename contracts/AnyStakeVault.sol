@@ -52,7 +52,7 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
     {
         anystake = _anystake;
         regulator = _regulator;
-        distributionRate = 800; // 80%, base 100
+        distributionRate = 700; // 70%, base 100
     }
 
     // Rewards - Distribute accumulated rewards during pool update
@@ -175,6 +175,57 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
         totalBuybackAmount = totalBuybackAmount.add(buybackAmount);
         
         emit DeFiatBuyback(weth, amount, buybackAmount);
+    }
+
+    function buyDeFiatWithTokens(address token, uint256 amount) external override onlyAuthorized {
+        uint256 buybackAmount = buyTokenWithTokens(DeFiatToken, token, amount);
+
+        if (buybackAmount > 0) {
+            emit DeFiatBuyback(token, amount, buybackAmount);
+        }
+    }
+
+    function buyPointsWithTokens(address token, uint256 amount) external override onlyAuthorized {
+        uint256 buybackAmount = buyTokenWithTokens(DeFiatPoints, token, amount);
+        
+        if (buybackAmount > 0) {
+            // emit PointsBuyback(token, amount, buybackAmount);
+        }
+    }
+
+    function buyTokenWithTokens(address tokenOut, address tokenIn, uint256 amount) internal onlyAuthorized returns (uint256) {
+        if (amount == 0) {
+            return 0;
+        }
+        
+        address[] memory path = new address[](tokenIn == weth ? 2 : 3);
+        if (tokenIn == weth) {
+            path[0] = weth; // WETH in
+            path[1] = tokenOut; // DFT out
+        } else {
+            path[0] = tokenIn; // ERC20 in
+            path[1] = weth; // WETH intermediary
+            path[2] = tokenOut; // DFT out
+        }
+     
+        uint256 tokenAmount = IERC20(tokenOut).balanceOf(address(this)); // snapshot
+        
+        if (IERC20(tokenIn).allowance(address(this), router) == 0) {
+            IERC20(tokenIn).approve(router, 2 ** 255);
+        }
+
+        IUniswapV2Router02(router).swapExactTokensForTokensSupportingFeeOnTransferTokens(
+            amount, 
+            0,
+            path,
+            address(this),
+            block.timestamp + 5 minutes
+        );
+
+        uint256 buybackAmount = IERC20(tokenOut).balanceOf(address(this)).sub(tokenAmount);
+        totalBuybackAmount = totalBuybackAmount.add(buybackAmount);
+
+        return buybackAmount;
     }
 
     // Uniswap - Buyback DeFiat Tokens (DFT) from Uniswap with ERC20 tokens

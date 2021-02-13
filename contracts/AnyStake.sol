@@ -2,6 +2,7 @@
 
 pragma solidity ^0.6.0;
 
+import "./lib/@defiat-crypto/interfaces/IDeFiatPoints.sol";
 import "./interfaces/IAnyStake.sol";
 import "./interfaces/IAnyStakeVault.sol";
 import "./utils/AnyStakeUtils.sol";
@@ -10,16 +11,19 @@ import "hardhat/console.sol";
 //series of pool weighted by token price (using price oracles on chain)
 contract AnyStake is IAnyStake, AnyStakeUtils {
     using SafeMath for uint256;
+    using SafeERC20 for IERC20;
 
     // EVENTS
     event Initialized(address indexed user, address vault);
     event EpochStarted(address indexed user, uint256 epoch, uint256 epochStartBlock, uint256 cumulativeRewardsSinceStart);
-    event PoolAdded(address indexed user, uint256 indexed pid, address indexed stakedToken, address lpToken, uint256 allocPoints);
-    event PoolAllocPointsUpdated(address indexed user, uint256 indexed pid, uint256 allocPoints);
-    event PoolActiveUpdated(address indexed user, uint256 indexed pid, bool active);
     event Claim(address indexed user, uint256 indexed pid, uint256 amount);
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
+    event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
+    event PoolAdded(address indexed user, uint256 indexed pid, address indexed stakedToken, address lpToken, uint256 allocPoints);
+    event PoolAllocPointsUpdated(address indexed user, uint256 indexed pid, uint256 allocPoints);
+    event PoolActiveUpdated(address indexed user, uint256 indexed pid, bool active);
+    event PointStipendUpdated(address indexed user, uint256 stipend);
 
     // STRUCTS
     // UserInfo - User metrics, pending reward = (user.amount * pool.DFTPerShare) - user.rewardPaid
@@ -48,6 +52,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
     mapping(uint256 => uint256) public epochRewards; // For easy graphing historical epoch rewards
     mapping(address => uint256) public pids; // quick mapping for pool ids (staked_token => pid)
 
+    uint256 public pointStipend; // amount of DFTP awarded per deposit
     uint256 public stakingFee; // fee to stake ERC-20 tokens
     uint256 public totalAllocPoint; // Total allocation points. Must be the sum of all allocation points in all pools.
     uint256 public totalPendingRewards; // pending DFT rewards awaiting anyone to massUpdate
@@ -80,6 +85,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         public 
         AnyStakeUtils(_router, _gov, _token, _points)
     {
+        pointStipend = 1e18;
         stakingFee = 50; // 5%, base 100
     }
     
@@ -167,6 +173,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
 
         // Multiplies pending rewards by allocation point of this pool and then total allocation
         // getting the percent of total pending rewards this pool should get
+        // this should take into account the blocks passed since last reward, that will keep values consistent
         uint256 poolRewards = totalPendingRewards.mul(pool.allocPoint).div(totalAllocPoint);
 
         // double-check math since tokenSupply is not necessarily 1e18
@@ -213,8 +220,9 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         emit Claim(_user, _pid, pending);
     }
 
-    // Pool - Deposit and Claim rewards
+    // Pool - Deposit Tokens
     function deposit(uint256 pid, uint256 amount) external override NoReentrant(pid, msg.sender) {
+        _updatePool(pid);
         _deposit(msg.sender, pid, amount);
     }
 
@@ -226,12 +234,47 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         require(_amount > 0, "Deposit: Cannot deposit zero tokens");
         require(pool.active, "Deposit: Pool is not active");
 
-        // Update and claim rewards
-        _updatePool(_pid);
+        // Claim rewards
         _claim(_pid, _user);
 
+        // reward user
+        IDeFiatPoints(DeFiatPoints).addPoints(_user, IDeFiatPoints(DeFiatPoints).viewTxThreshold(), pointStipend);
+
+        // Finalize, update user metrics
+        pool.totalStaked = pool.totalStaked.add(_amount);
+        user.amount = user.amount.add(_amount);
+        user.rewardPaid = user.amount.mul(pool.rewardsPerShare).div(1e18);
+
         // Transfer the total amounts from user and update pool user.amount into the AnyStake contract
-        IERC20(pool.stakedToken).safeTransferFrom(_user, address(this), _amount);
+        IERC20(pool.stakedToken).transferFrom(_user, address(this), _amount);
+        emit Deposit(_user, _pid, _amount);
+    }
+
+    // Pool - Withdraw staked tokens
+    function withdraw(uint256 pid, uint256 amount) external override NoReentrant(pid, msg.sender) {
+        _updatePool(pid);
+        _withdraw(msg.sender, pid, amount);
+    }
+    
+    // Pool - Withdraw Internal
+    function _withdraw(
+        address _user,
+        uint256 _pid,
+        uint256 _amount
+    ) internal {
+        PoolInfo storage pool = poolInfo[_pid];
+        UserInfo storage user = userInfo[_pid][_user];
+
+        require(_amount > 0, "Withdraw: amount must be greater than zero");
+        require(user.amount >= _amount, "Withdraw: user amount insufficient");
+        
+        // claim rewards
+        _claim(_pid, _user);
+
+        // update pool / user metrics
+        pool.totalStaked = pool.totalStaked.sub(_amount);
+        user.amount = user.amount.sub(_amount);
+        user.rewardPaid = user.amount.mul(pool.rewardsPerShare).div(1e18);
 
         // PID = 0 : DFT-LP
         // PID = 1 : DFTP-LP
@@ -247,42 +290,26 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
             IAnyStakeVault(vault).buyDFTWithTokens(pool.stakedToken, stakingFeeAmount);
         }
 
-        // Finalize, update user metrics
-        pool.totalStaked = pool.totalStaked.add(remainingUserAmount);
-        user.amount = user.amount.add(remainingUserAmount);
-        user.rewardPaid = user.amount.mul(pool.rewardsPerShare).div(1e18);
-        emit Deposit(_user, _pid, _amount);
-    }
-
-    // Pool - Withdraw staked tokens and claim pending rewards
-    function withdraw(uint256 pid, uint256 amount) external override NoReentrant(pid, msg.sender) {
-        _withdraw(msg.sender, pid, amount);
-    }
-    
-    // Pool - Withdraw Internal
-    function _withdraw(
-        address _user,
-        uint256 _pid,
-        uint256 _amount
-    ) internal {
-        PoolInfo storage pool = poolInfo[_pid];
-        UserInfo storage user = userInfo[_pid][_user];
-
-        require(_amount > 0, "Withdraw: amount must be greater than zero");
-        require(user.amount >= _amount, "Withdraw: user amount insufficient");
-
-        // update and claim rewards
-        _updatePool(_pid);
-        _claim(_pid, _user);
-
-        // update pool / user metrics
-        pool.totalStaked = pool.totalStaked.sub(_amount);
-        user.amount = user.amount.sub(_amount);
-        user.rewardPaid = user.amount.mul(pool.rewardsPerShare).div(1e18);
-
         // withdraw user tokens
-        IERC20(pool.stakedToken).transfer(_user, _amount);        
-        emit Withdraw(_user, _pid, _amount);
+        IERC20(pool.stakedToken).transfer(_user, remainingUserAmount);        
+        emit Withdraw(_user, _pid, remainingUserAmount);
+    }
+
+    // 
+    function emergencyWithdraw(uint256 pid) external NoReentrant(pid, msg.sender) {
+        PoolInfo storage pool = poolInfo[pid];
+        UserInfo storage user = userInfo[pid][msg.sender];
+
+        require(user.amount > 0, "EmergencyWithdraw: user amount insufficient");
+
+        uint256 balance = user.amount;
+        pool.totalStaked = pool.totalStaked.sub(balance);
+        user.amount = 0;
+        user.rewardPaid = 0;
+        user.lastRewardBlock = block.number;
+
+        IERC20(pool.stakedToken).transfer(msg.sender, balance);
+        emit EmergencyWithdraw(msg.sender, pid, balance);
     }
 
     // View - gets stakedToken price from the Vault
@@ -373,5 +400,13 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
 
         poolInfo[_pid].active = _active;
         emit PoolActiveUpdated(msg.sender, _pid, _active);
+    }
+
+    // Governance - Set Pool Allocation Points
+    function setPointStipend(uint256 _pointStipend) external onlyGovernor {
+        require(_pointStipend != pointStipend, "SetStipend: No stipend change");
+
+        pointStipend = _pointStipend;
+        emit PointStipendUpdated(msg.sender, pointStipend);
     }
 }

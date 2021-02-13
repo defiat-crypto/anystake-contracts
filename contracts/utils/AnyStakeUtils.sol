@@ -2,6 +2,7 @@
 
 pragma solidity ^0.6.0;
 
+import "../lib/@defiat-crypto/utils/DeFiatUtils.sol";
 import "../lib/@defiat-crypto/utils/DeFiatGovernedUtils.sol";
 import "../lib/@openzeppelin/token/ERC20/SafeERC20.sol";
 import "../lib/@uniswap/interfaces/IUniswapV2Router02.sol";
@@ -35,10 +36,10 @@ abstract contract AnyStakeUtils is DeFiatGovernedUtils {
         DeFiatPointsLp = address(0); //IUniswapV2Factory(factory).getPair(dftp, weth);
     }
 
-    function sweep(address _token) external override onlyOwner {
+    function sweep(address _token) public override onlyOwner {
         require(!_blacklistedAdminWithdraw[_token], "Sweep: Cannot withdraw blacklisted token");
 
-        this.sweep(_token);
+        DeFiatUtils.sweep(_token);
     }
 
     function isBlacklistedAdminWithdraw(address _token)

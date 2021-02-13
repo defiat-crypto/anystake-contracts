@@ -9,7 +9,7 @@ abstract contract DeFiatUtils is Ownable {
     event TokenSweep(address indexed user, address indexed token, uint256 amount);
 
     // Sweep any tokens/ETH accidentally sent or airdropped to the contract
-    function sweep(address token) external virtual onlyOwner {
+    function sweep(address token) public virtual onlyOwner {
         uint256 amount = IERC20(token).balanceOf(address(this));
         require(amount > 0, "Sweep: No token balance");
 

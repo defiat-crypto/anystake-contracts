@@ -1,23 +1,19 @@
 import { BigNumber, BigNumberish } from "ethers";
 import { ethers, deployments, getNamedAccounts } from "hardhat";
-import IERC20Abi from "../build/abi/IERC20.json";
-import IUniswapV2PairAbi from "../build/abi/IUniswapV2Pair.json";
-import IUniswapV2Router02Abi from "../build/abi/IUniswapV2Router02.json";
-import IWETHAbi from "../build/abi/IWETH.json";
 import {
-  AnyStake,
-  AnyStakeRegulator,
-  AnyStakeVault,
-  IERC20,
-  IUniswapV2Router02,
-  IWETH,
-} from "../typechain";
-import {
-  DeFiatGov,
-  DeFiatPoints,
-  DeFiatToken,
-  // IWETH,
-} from "@defiat-crypto/core-contracts/typechain";
+  Accounts,
+  addLiquidity,
+  approveToken,
+  buyToken,
+  depositForWeth,
+  getAccount,
+  getRouter,
+} from "../utils";
+
+import * as chai from "chai";
+import { waffleChai } from "@ethereum-waffle/chai";
+import { IERC20 } from "../typechain";
+chai.use(waffleChai);
 
 export const tokens = [
   { address: "", amount: "" },
@@ -29,162 +25,86 @@ export const tokens = [
 
 export const setupTest = deployments.createFixture(async (hre, options) => {
   await deployments.fixture();
-
-  const { deployer, alpha, beta, usdc, core } = await getNamedAccounts();
-  const DFT = (await ethers.getContract(
-    "DeFiatToken",
-    deployer
-  )) as DeFiatToken;
-  const DFTP = (await ethers.getContract(
-    "DeFiatPoints",
-    deployer
-  )) as DeFiatPoints;
-  const Gov = (await ethers.getContract("DeFiatGov", deployer)) as DeFiatGov;
-  const AnyStake = (await ethers.getContract("AnyStake", deployer)) as AnyStake;
-  const Vault = (await ethers.getContract(
-    "AnyStakeVault",
-    deployer
-  )) as AnyStakeVault;
-  const Regulator = (await ethers.getContract(
-    "AnyStakeRegulator",
-    deployer
-  )) as AnyStakeRegulator;
-
-  await setup(deployer, alpha, usdc, core, DFT, DFTP);
-
-  return {
-    deployer,
-    alpha,
-    beta,
-    DFT,
-    DFTP,
-    Gov,
-    AnyStake,
-    Vault,
-    Regulator,
-  };
+  const accounts = await setupAccounts();
+  return accounts;
 });
 
-const setup = async (
-  deployer: string,
-  alpha: string,
-  usdc: string,
-  core: string,
-  DFT: DeFiatToken,
-  DFTP: DeFiatPoints
-) => {
-  const router = await getRouter(deployer);
+export const setupDeployTest = deployments.createFixture(
+  async (hre, options) => {
+    await deployments.fixture([
+      "Gov",
+      "Points",
+      "Token",
+      "Uniswap",
+      "AnyStake",
+      "Regulator",
+    ]);
+    const accounts = await setupAccounts();
+    return accounts;
+  }
+);
 
-  // send DFT / mint DFTP to alpha
-  await DFT.transfer(alpha, ethers.utils.parseEther("300000")).then((tx) =>
-    tx.wait()
-  );
-  console.log("dft");
-  await DFTP.overrideLoyaltyPoints(
-    alpha,
-    ethers.utils.parseEther("100000")
-  ).then((tx) => tx.wait());
-  console.log("dftp");
+export const setupStakingTest = deployments.createFixture(
+  async (hre, options) => {
+    await deployments.fixture();
+    const accounts = await setupAccounts();
+    await setupUniswap(accounts);
+    return accounts;
+  }
+);
 
-  // add liquidity to DFT/ETH
-  await approveToken(DFT.address, alpha, router.address);
-  await addLiquidity(DFT.address, ethers.utils.parseEther("100"), "10", alpha);
-  console.log("add liq dft");
+const setupAccounts = async () => {
+  const { mastermind, alpha, beta } = await getNamedAccounts();
+  const _mastermind = await getAccount(mastermind);
+  const _alpha = await getAccount(alpha);
+  const _beta = await getAccount(beta);
 
-  // // add liquidity to DFTP/ETH
-  await approveToken(DFT.address, alpha, router.address);
-  await addLiquidity(DFT.address, ethers.utils.parseEther("100"), "10", alpha);
-  console.log("add liq dftp");
+  return {
+    mastermind: _mastermind,
+    alpha: _alpha,
+    beta: _beta,
+  };
+};
+
+const setupUniswap = async (accounts: Accounts) => {
+  const { alpha, mastermind } = accounts;
+  const { usdc, core, tokenLp, pointsLp } = await getNamedAccounts();
+  const { Points, Token } = mastermind;
+
+  const TokenLp = (await ethers.getContractAt(
+    "IERC20",
+    tokenLp,
+    mastermind.address
+  )) as IERC20;
+  const PointsLp = (await ethers.getContractAt(
+    "IERC20",
+    pointsLp,
+    mastermind.address
+  )) as IERC20;
 
   // // convert ETH to WETH
-  await depositForWeth(alpha, ethers.utils.parseEther("10"));
+  await depositForWeth(alpha.address, ethers.utils.parseEther("10"));
   console.log("deposit eth for weth");
 
   // buy USDC and CORE test tokens
-  await buyToken(usdc, ethers.utils.parseEther("10"), alpha);
-  await buyToken(core, ethers.utils.parseEther("10"), alpha);
+  await buyToken(usdc, ethers.utils.parseEther("10"), alpha.address);
+  await buyToken(core, ethers.utils.parseEther("10"), alpha.address);
   console.log("buy test tokens");
-};
 
-const approveToken = async (
-  address: string,
-  signer: string,
-  spender: string
-) => {
-  const Token = await getToken(address, signer);
-  await Token.approve(spender, ethers.constants.MaxUint256).then((tx) =>
+  const pointsLpBalance = await PointsLp.balanceOf(mastermind.address);
+  const tokenLpBalance = await TokenLp.balanceOf(mastermind.address);
+
+  // send alpha dftLP, dftpLP, dft, and dftp
+  await Points.overrideLoyaltyPoints(
+    alpha.address,
+    ethers.utils.parseEther("10000")
+  ).then((tx) => tx.wait());
+  await PointsLp.transfer(alpha.address, pointsLpBalance).then((tx) =>
     tx.wait()
   );
-};
-
-const buyToken = async (
-  address: string,
-  value: BigNumberish,
-  signer: string
-): Promise<BigNumberish> => {
-  const Token = await getToken(address, signer);
-  const Router = await getRouter(signer);
-  const WETH = await Router.WETH();
-
-  await Router.swapExactETHForTokensSupportingFeeOnTransferTokens(
-    "0",
-    [WETH, address],
-    signer,
-    Date.now() + 30000,
-    {
-      value,
-    }
+  await Token.transfer(
+    alpha.address,
+    ethers.utils.parseEther("100000")
   ).then((tx) => tx.wait());
-
-  const balance = await Token.balanceOf(signer);
-  return balance;
-};
-
-const addLiquidity = async (
-  address: string,
-  amount: BigNumberish,
-  value: BigNumberish,
-  signer: string
-): Promise<BigNumberish> => {
-  const Token = await getToken(address, signer);
-  const Router = await getRouter(signer);
-
-  await Router.addLiquidityETH(
-    address,
-    amount,
-    "0",
-    "0",
-    signer,
-    Date.now() + 30000,
-    {
-      value,
-    }
-  ).then((tx) => tx.wait());
-
-  // const balance = await
-  return 0;
-};
-
-const depositForWeth = async (signer: string, value: BigNumberish) => {
-  const router = await getRouter(signer);
-  const wethAddress = await router.WETH();
-  const WETH = (await ethers.getContractAt(
-    IWETHAbi,
-    wethAddress,
-    signer
-  )) as IWETH;
-  await WETH.deposit({ value }).then((tx) => tx.wait());
-};
-
-const getRouter = async (signer: string) => {
-  const { uniswap } = await getNamedAccounts();
-  return (await ethers.getContractAt(
-    IUniswapV2Router02Abi,
-    uniswap,
-    signer
-  )) as IUniswapV2Router02;
-};
-
-const getToken = async (address: string, signer: string) => {
-  return (await ethers.getContractAt(IERC20Abi, address, signer)) as IERC20;
+  await TokenLp.transfer(alpha.address, tokenLpBalance).then((tx) => tx.wait());
 };

@@ -1,6 +1,10 @@
 import { DeployFunction } from "hardhat-deploy/types";
 import { AnyStake } from "../typechain";
-import { DeFiatPoints } from "@defiat-crypto/core-contracts/typechain";
+import {
+  DeFiatGov,
+  DeFiatPoints,
+} from "@defiat-crypto/core-contracts/typechain";
+import { any } from "hardhat/internal/core/params/argumentTypes";
 
 const func: DeployFunction = async ({
   getNamedAccounts,
@@ -9,7 +13,19 @@ const func: DeployFunction = async ({
   network,
 }) => {
   const { deploy } = deployments;
-  const { mastermind, uniswap, gov, points, token } = await getNamedAccounts();
+  const {
+    core,
+    coreLp,
+    gov,
+    mastermind,
+    points,
+    pointsLp,
+    token,
+    tokenLp,
+    uniswap,
+    usdc,
+    usdcLp,
+  } = await getNamedAccounts();
 
   console.log("Deploying with ", mastermind);
 
@@ -25,16 +41,29 @@ const func: DeployFunction = async ({
       "AnyStake",
       mastermind
     )) as AnyStake;
-    // const tokens = Addresses.mainnet.anystake;
-    // await anystake.addPoolBatch()
-
+    const gov = (await ethers.getContract(
+      "DeFiatGov",
+      mastermind
+    )) as DeFiatGov;
     const points = (await ethers.getContract(
       "DeFiatPoints",
       mastermind
     )) as DeFiatPoints;
 
+    await gov.setActorLevel(result.address, 2).then((tx) => tx.wait());
     await points.overrideDiscount(result.address, 100).then((tx) => tx.wait());
+
+    if (!network.live) {
+      // await anystake
+      //   .addPoolBatch(
+      //     [tokenLp, pointsLp, usdc, core],
+      //     ["0x", "0x", usdcLp, coreLp],
+      //     [500, 500, 100, 100]
+      //   )
+      //   .then((tx) => tx.wait());
+    }
   }
 };
 
 export default func;
+func.tags = ["AnyStake"];

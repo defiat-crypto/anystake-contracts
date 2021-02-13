@@ -9,8 +9,13 @@
   },
   "include": [
     "./deploy", 
-    "./scripts", 
+    "./scripts",
     "./test",
+    "./utils"
+  ],
+  "exclude": [
+    "./cache",
+    "./typechain"
   ],
   "files": ["./hardhat.config.ts"]
 }

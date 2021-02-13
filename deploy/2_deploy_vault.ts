@@ -22,8 +22,6 @@ const func: DeployFunction = async ({
     mastermind
   )) as AnyStakeRegulator;
 
-  console.log(anystake.address, regulator.address);
-
   const result = await deploy("AnyStakeVault", {
     from: mastermind,
     log: true,
@@ -61,3 +59,4 @@ const func: DeployFunction = async ({
 };
 
 export default func;
+func.tags = ["Vault"];
