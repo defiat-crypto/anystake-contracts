@@ -3,7 +3,10 @@
 pragma solidity ^0.6.0;
 
 interface IAnyStakeRegulator {
-    function updatePool() external;
+    function addReward(uint256 amount) external;
     function claim() external;
     function deposit(uint256 amount) external;
+    function withdraw(uint256 amount) external;
+    function migrate() external;
+    function updatePool() external;
 }

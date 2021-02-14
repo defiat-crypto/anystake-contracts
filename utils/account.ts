@@ -1,7 +1,11 @@
 import { ethers } from "hardhat";
 import { AnyStake, AnyStakeRegulator, AnyStakeVault } from "../typechain";
-// @ts-ignore
-import { getGov, getPoints, getToken } from "@defiat-crypto/core-contracts";
+import {
+  getGov,
+  getPoints,
+  getToken,
+  // @ts-ignore
+} from "@defiat-crypto/core-contracts/build";
 import {
   DeFiatGov,
   DeFiatPoints,

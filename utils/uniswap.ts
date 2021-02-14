@@ -1,9 +1,5 @@
 import { BigNumber, BigNumberish } from "ethers";
 import { ethers, getNamedAccounts } from "hardhat";
-import IERC20Abi from "../build/abi/IERC20.json";
-import IUniswapV2PairAbi from "../build/abi/IUniswapV2Pair.json";
-import IUniswapV2Router02Abi from "../build/abi/IUniswapV2Router02.json";
-import IWETHAbi from "../build/abi/IWETH.json";
 import { IERC20, IUniswapV2Router02, IWETH } from "../typechain";
 
 export const approveToken = async (
@@ -69,7 +65,7 @@ export const depositForWeth = async (signer: string, value: BigNumberish) => {
   const router = await getRouter(signer);
   const wethAddress = await router.WETH();
   const WETH = (await ethers.getContractAt(
-    IWETHAbi,
+    "IWETH",
     wethAddress,
     signer
   )) as IWETH;
@@ -79,12 +75,12 @@ export const depositForWeth = async (signer: string, value: BigNumberish) => {
 export const getRouter = async (signer: string) => {
   const { uniswap } = await getNamedAccounts();
   return (await ethers.getContractAt(
-    IUniswapV2Router02Abi,
+    "IUniswapV2Router02",
     uniswap,
     signer
   )) as IUniswapV2Router02;
 };
 
 export const getToken = async (address: string, signer: string) => {
-  return (await ethers.getContractAt(IERC20Abi, address, signer)) as IERC20;
+  return (await ethers.getContractAt("IERC20", address, signer)) as IERC20;
 };

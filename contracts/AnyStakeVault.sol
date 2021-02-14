@@ -17,6 +17,7 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
     event RegulatorUpdated(address indexed user, address regulator);
     event DistributionRateUpdated(address indexed user, uint256 distributionRate);
     event DeFiatBuyback(address indexed token, uint256 tokenAmount, uint256 buybackAmount);
+    event PointsBuyback(address indexed token, uint256 tokenAmount, uint256 buybackAmount);
     event RewardsDistributed(address indexed user, uint256 anystakeAmount, uint256 regulatorAmount);
     event RewardsBonded(address indexed user, uint256 bondedAmount, uint256 bondedLengthBlocks);
 
@@ -105,10 +106,12 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
 
         if (anystakeAmount > 0) {
             IERC20(DeFiatToken).safeTransfer(anystake, anystakeAmount);
+            IAnyStake(anystake).addReward(anystakeAmount);
         }
 
         if (regulatorAmount > 0) {
             IERC20(DeFiatToken).safeTransfer(regulator, regulatorAmount);
+            IAnyStakeRegulator(regulator).addReward(regulatorAmount);
         }
         
         lastDistributionBlock = block.number;
@@ -149,34 +152,8 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
     function isLiquidityToken(address token) internal view returns (bool) {
         return keccak256(bytes(IERC20(token).symbol())) == keccak256(bytes("UNI-V2"));
     }
-        
-    // Uniswap - Buyback DeFiat Tokens (DFT) from Uniswap with ETH
-    function buyDFTWithETH(uint256 amount) external override onlyAuthorized {
-        if (amount == 0) {
-            return;
-        }
 
-        address[] memory path = new address[](2);
-        path[0] = weth;
-        path[1] = DeFiatToken;
-     
-        uint256 tokenAmount = IERC20(DeFiatToken).balanceOf(address(this));
-        
-        IUniswapV2Router02(router).swapExactETHForTokensSupportingFeeOnTransferTokens{
-            value: amount
-        }(
-            0,
-            path, 
-            address(this), 
-            block.timestamp + 5 minutes
-        );
-
-        uint256 buybackAmount = IERC20(DeFiatToken).balanceOf(address(this)).sub(tokenAmount);
-        totalBuybackAmount = totalBuybackAmount.add(buybackAmount);
-        
-        emit DeFiatBuyback(weth, amount, buybackAmount);
-    }
-
+    // Uniswap - Buyback DeFiat Tokens (DFT) from Uniswap with ERC20 tokens
     function buyDeFiatWithTokens(address token, uint256 amount) external override onlyAuthorized {
         uint256 buybackAmount = buyTokenWithTokens(DeFiatToken, token, amount);
 
@@ -185,14 +162,16 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
         }
     }
 
+    // Uniswap - Buyback DeFiat Points (DFTP) from Uniswap with ERC20 tokens
     function buyPointsWithTokens(address token, uint256 amount) external override onlyAuthorized {
         uint256 buybackAmount = buyTokenWithTokens(DeFiatPoints, token, amount);
         
         if (buybackAmount > 0) {
-            // emit PointsBuyback(token, amount, buybackAmount);
+            emit PointsBuyback(token, amount, buybackAmount);
         }
     }
 
+    // Uniswap - Internal buyback function. Must have a WETH trading pair on Uniswap
     function buyTokenWithTokens(address tokenOut, address tokenIn, uint256 amount) internal onlyAuthorized returns (uint256) {
         if (amount == 0) {
             return 0;
@@ -227,44 +206,6 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
 
         return buybackAmount;
     }
-
-    // Uniswap - Buyback DeFiat Tokens (DFT) from Uniswap with ERC20 tokens
-    // Must have a WETH trading pair on Uniswap
-    function buyDFTWithTokens(address token, uint256 amount) external override onlyAuthorized {
-        if (amount == 0) {
-            return;
-        }
-        
-        address[] memory path = new address[](token == weth ? 2 : 3);
-        if (token == weth) {
-            path[0] = weth; // WETH in
-            path[1] = DeFiatToken; // DFT out
-        } else {
-            path[0] = token; // ERC20 in
-            path[1] = weth; // WETH intermediary
-            path[2] = DeFiatToken; // DFT out
-        }
-     
-        uint256 tokenAmount = IERC20(DeFiatToken).balanceOf(address(this)); // snapshot
-        
-        if (IERC20(token).allowance(address(this), router) == 0) {
-            IERC20(token).approve(router, 2 ** 255);
-        }
-
-        IUniswapV2Router02(router).swapExactTokensForTokensSupportingFeeOnTransferTokens(
-            amount, 
-            0,
-            path,
-            address(this),
-            block.timestamp + 5 minutes
-        );
-
-        uint256 buybackAmount = IERC20(DeFiatToken).balanceOf(address(this)).sub(tokenAmount);
-        totalBuybackAmount = totalBuybackAmount.add(buybackAmount);
-        
-        emit DeFiatBuyback(token, amount, buybackAmount);
-    }
-
 
     // Governance - Add Bonded Rewards, rewards paid out over fixed timeframe
     // Used for pre-AnyStake accumulated Treasury rewards and promotions
@@ -308,32 +249,3 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
         emit RegulatorUpdated(msg.sender, regulator);
     }
 }
-
-// Bounty Based Reward Distribution
-
-// uint256 public distributionBounty; // % of collected rewards paid for distributing to AnyStake pools
-
-// function setDistributionBounty(uint256 bounty) external onlyGovernor {
-//     require(bounty <= 1000, "Cannot be greater than 100%");
-//     distributionBounty = bounty;
-// }
-
-// function distributeRewards() external override {
-//     uint256 amount = IERC20(DeFiatToken).balanceOf(address(this));
-//     uint256 bountyAmount = amount.mul(distributionBounty).div(1000);
-//     uint256 rewardAmount = amount.sub(bountyAmount);
-//     uint256 anystakeAmount = rewardAmount.mul(distributionRate).div(1000);
-//     uint256 regulatorAmount = rewardAmount.sub(anystakeAmount);
-
-//     IERC20(DeFiatToken).safeTransfer(anystake, anystakeAmount);
-//     IERC20(DeFiatToken).safeTransfer(regulator, regulatorAmount);
-
-//     IAnyStake(anystake).massUpdatePools();
-//     IAnyStakeRegulator(regulator).updatePool();
-
-//     if (bountyAmount > 0) {
-//         IERC20(DeFiatToken).safeTransfer(msg.sender, bountyAmount);
-//     }
-
-//     emit DistributedRewards(msg.sender, anystakeAmount, regulatorAmount, bountyAmount);
-// }

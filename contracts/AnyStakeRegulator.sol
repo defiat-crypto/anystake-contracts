@@ -3,6 +3,7 @@
 pragma solidity ^0.6.0;
 
 import "./lib/@defiat-crypto/interfaces/IDeFiatPoints.sol";
+import "./interfaces/IAnyStakeMigrator.sol";
 import "./interfaces/IAnyStakeRegulator.sol";
 import "./interfaces/IAnyStakeVault.sol";
 import "./utils/AnyStakeUtils.sol";
@@ -16,32 +17,39 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
     event Claim(address indexed user, uint256 amount);
     event Deposit(address indexed user, uint256 amount);
     event Withdraw(address indexed user, uint256 amount);
+    event Migrate(address indexed user, uint256 amount);
+    event EmergencyWithdraw(address indexed user, uint256 amount);
+    event StakingFeeUpdated(address indexed user, uint256 stakingFee);
+    event BuybackRateUpdated(address indexed user, uint256 buybackRate);
     event PriceMultiplierUpdated(address indexed user, uint256 amount);
+    event MigratorUpdated(address indexed user, address migrator);
     event RegulatorActive(address indexed user, bool active);
 
     struct UserInfo {
         uint256 amount;
-        uint256 rewardPaid;
-        uint256 lastEntryBlock;
+        uint256 rewardDebt;
+        uint256 lastRewardBlock;
     }
 
     mapping (address => UserInfo) public userInfo;
     
+    address public migrator;
     address public vault;
 
-    bool public active;
-    bool public initialized;
-    uint256 public stakingFee;
-    uint256 public priceMultiplier; // pegs price at (DFT_PRICE * priceMultiplier) / 1000
-    // uint256 public exponentialRetry; // exponentially increases burn on each successive attempt
-    uint256 public lastRewardBlock;
-    uint256 public pendingRewards;
-    uint256 public rewardsPerShare;
-    uint256 public totalShares;
+    bool public active; // staking is active
+    bool public initialized; // contract has been initialized
+    uint256 public stakingFee; // fee taken on withdrawals
+    uint256 public priceMultiplier; // price peg control, DFT_PRICE = (DFTP_PRICE * priceMultiplier) / 1000
+    uint256 public lastRewardBlock; // last block that rewards were received
+    uint256 public buybackBalance; // total pending DFT awaiting stabilization
+    uint256 public buybackRate; // rate of rewards stockpiled for stabilization
+    uint256 public pendingRewards; // total pending DFT rewards
+    uint256 public rewardsPerShare; // DFT rewards per DFTP, times 1e18 to prevent underflow
+    uint256 public totalShares; // total staked shares
 
     modifier NoReentrant(address user) {
         require(
-            block.number > userInfo[user].lastEntryBlock,
+            block.number > userInfo[user].lastRewardBlock,
             "Regulator: Must wait 1 block"
         );
         _;
@@ -56,8 +64,9 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         public 
         AnyStakeUtils(_router, _gov, _points, _token)
     {
-        priceMultiplier = 1000;
+        priceMultiplier = 1000; // 1000 / 1000 = 1
         stakingFee = 100; // 10%
+        buybackRate = 300; // 30%
     }
 
     function initialize(address _vault) external onlyGovernor {
@@ -82,9 +91,27 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         } else {
             // Below Peg: sell DFT, buy DFTP, burn proceeds (deflationary)
 
-            IERC20(DeFiatToken).transfer(vault, amount);
-            IAnyStakeVault(vault).buyPointsWithTokens(DeFiatToken, amount);
+            IERC20(DeFiatToken).transfer(vault, buybackBalance);
+            IAnyStakeVault(vault).buyPointsWithTokens(DeFiatToken, buybackBalance);
             IDeFiatPoints(DeFiatPoints).overrideLoyaltyPoints(vault, 0);
+        }
+    }
+
+    // Pool - Add rewards
+    function addReward(uint256 amount) external override {
+        if (amount == 0) {
+            return;
+        }
+
+        uint256 rewardAmount = amount.mul(buybackRate).div(1000);
+        uint256 buybackAmount = amount.sub(rewardAmount);
+
+        if (buybackAmount > 0) {
+            buybackBalance = buybackBalance.add(buybackAmount);
+        }
+
+        if (rewardAmount > 0) {
+            pendingRewards = pendingRewards.add(rewardAmount);
         }
     }
 
@@ -123,7 +150,7 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
     function _claim(address _user) internal {
         // get pending rewards
         UserInfo storage user = userInfo[_user];
-        uint256 pending = user.amount.mul(rewardsPerShare).div(1e18).sub(user.rewardPaid);
+        uint256 pending = user.amount.mul(rewardsPerShare).div(1e18).sub(user.rewardDebt);
         if (pending == 0) {
             return;
         }
@@ -135,8 +162,8 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
 
         // update pool / user metrics
         pendingRewards = pendingRewards.sub(pending);
-        user.rewardPaid = user.amount.mul(rewardsPerShare).div(1e18);
-        user.lastEntryBlock = block.number;
+        user.rewardDebt = user.amount.mul(rewardsPerShare).div(1e18);
+        user.lastRewardBlock = block.number;
         
         // transfer
         safeTokenTransfer(_user, DeFiatToken, pending);
@@ -159,15 +186,15 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         // update pool / user metrics
         totalShares = totalShares.add(_amount);
         user.amount = user.amount.add(_amount);
-        user.rewardPaid = user.rewardPaid.add(_amount);
-        user.lastEntryBlock = block.number;
+        user.rewardDebt = user.rewardDebt.add(_amount);
+        user.lastRewardBlock = block.number;
 
         IERC20(DeFiatPoints).transferFrom(_user, address(this), _amount);
         emit Deposit(_user, _amount);
     }
 
     // Pool - Withdraw function, currently unused
-    function withdraw(uint256 amount) internal NoReentrant(msg.sender) {
+    function withdraw(uint256 amount) external override NoReentrant(msg.sender) {
         _updatePool();
         _withdraw(msg.sender, amount); // internal, unused
     }
@@ -179,12 +206,70 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
 
         _claim(_user);
 
+        uint256 feeAmount = _amount.mul(stakingFee).div(1000);
+        uint256 remainingUserAmount = _amount.sub(feeAmount);
+
+        if (feeAmount > 0) {
+            stabilize(feeAmount);
+        }
+
         totalShares = totalShares.sub(_amount);
         user.amount = user.amount.sub(_amount);
-        user.lastEntryBlock = block.number;
+        user.lastRewardBlock = block.number;
 
-        IERC20(DeFiatPoints).transfer(_user, _amount);
-        emit Withdraw(_user, _amount);
+        IERC20(DeFiatPoints).transfer(_user, remainingUserAmount);
+        emit Withdraw(_user, remainingUserAmount);
+    }
+
+    function migrate() external override NoReentrant(msg.sender) {
+        _updatePool();
+        _migrate(msg.sender);
+    }
+
+    function _migrate(address _user) internal {
+        UserInfo storage user = userInfo[_user];
+        uint256 balance = user.amount;
+
+        require(migrator != address(0), "Migrate: No migrator set");
+        require(balance > 0, "Migrate: No tokens to migrate");
+
+        IERC20(DeFiatPoints).safeApprove(migrator, balance);
+        IAnyStakeMigrator(migrator).migrate(_user, DeFiatPoints, balance);
+        emit Migrate(_user, balance);
+    }
+
+    // 
+    function emergencyWithdraw() external NoReentrant(msg.sender) {
+        UserInfo storage user = userInfo[msg.sender];
+
+        require(user.amount > 0, "EmergencyWithdraw: user amount insufficient");
+
+        uint256 balance = user.amount;
+        totalShares = totalShares.sub(balance);
+        user.amount = 0;
+        user.rewardDebt = 0;
+        user.lastRewardBlock = block.number;
+
+        safeTokenTransfer(msg.sender, DeFiatPoints, balance);
+        emit EmergencyWithdraw(msg.sender, balance);
+    }
+
+    // Governance - Set Staking Fee
+    function setStakingFee(uint256 _stakingFee) external onlyGovernor {
+        require(_stakingFee != stakingFee, "SetFee: No fee change");
+        require(_stakingFee <= 1000, "SetFee: Fee cannot exceed 100%");
+
+        stakingFee = _stakingFee;
+        emit StakingFeeUpdated(msg.sender, stakingFee);
+    }
+
+    // Governance - Set Buyback Rate
+    function setBuybackRate(uint256 _buybackRate) external onlyGovernor {
+        require(_buybackRate != buybackRate, "SetBuybackRate: No rate change");
+        require(_buybackRate <= 1000, "SetBuybackRate: Cannot exceed 100%");
+
+        buybackRate = _buybackRate;
+        emit BuybackRateUpdated(msg.sender, buybackRate);
     }
 
     // Governance - Set DeFiat Points price multiplier
@@ -194,6 +279,14 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
 
         priceMultiplier = _priceMultiplier;
         emit PriceMultiplierUpdated(msg.sender, priceMultiplier);
+    }
+
+    // Governance - Set Migrator
+    function setMigrator(address _migrator) external onlyGovernor {
+        require(_migrator != address(0), "SetMigrator: No migrator change");
+
+        migrator = _migrator;
+        emit MigratorUpdated(msg.sender, _migrator);
     }
 
     // Governance - Set Pool Deposits active
