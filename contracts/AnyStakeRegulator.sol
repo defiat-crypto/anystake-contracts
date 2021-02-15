@@ -7,6 +7,7 @@ import "./interfaces/IAnyStakeMigrator.sol";
 import "./interfaces/IAnyStakeRegulator.sol";
 import "./interfaces/IAnyStakeVault.sol";
 import "./utils/AnyStakeUtils.sol";
+import "hardhat/console.sol";
 
 //series of pool weighted by token price (using price oracles on chain)
 contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
@@ -80,12 +81,9 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
     }
 
     function stabilize(uint256 amount) internal {
-        uint256 tokenPrice = IAnyStakeVault(vault).getTokenPrice(DeFiatToken, DeFiatTokenLp);
-        uint256 pointsPrice = IAnyStakeVault(vault).getTokenPrice(DeFiatPoints, DeFiatPointsLp);
-
-        if (pointsPrice.mul(priceMultiplier).div(1000) > tokenPrice) {
+        if (isAbovePeg()) {
             // Above Peg: sell DFTP, buy DFT, add to rewards
-
+            
             IERC20(DeFiatPoints).transfer(vault, amount);
             IAnyStakeVault(vault).buyDeFiatWithTokens(DeFiatPoints, amount);
         } else {
@@ -103,8 +101,8 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
             return;
         }
 
-        uint256 rewardAmount = amount.mul(buybackRate).div(1000);
-        uint256 buybackAmount = amount.sub(rewardAmount);
+        uint256 buybackAmount = amount.mul(buybackRate).div(1000);
+        uint256 rewardAmount = amount.sub(buybackAmount);
 
         if (buybackAmount > 0) {
             buybackBalance = buybackBalance.add(buybackAmount);
@@ -128,13 +126,6 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
 
         // distribute rewards
         IAnyStakeVault(vault).distributeRewards();
-
-        // update pendingRewards
-        uint256 incomingRewards = IERC20(DeFiatToken).balanceOf(address(this)).sub(pendingRewards);
-        if (incomingRewards > 0) {
-            pendingRewards = pendingRewards.add(incomingRewards);
-            // rewardsInThisEpoch = rewardsInThisEpoch.add(incomingRewards);
-        }
 
         // update rewardsPerShare
         rewardsPerShare = rewardsPerShare.add(pendingRewards.mul(1e18).div(totalShares));
@@ -186,8 +177,7 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         // update pool / user metrics
         totalShares = totalShares.add(_amount);
         user.amount = user.amount.add(_amount);
-        user.rewardDebt = user.rewardDebt.add(_amount);
-        user.lastRewardBlock = block.number;
+        user.rewardDebt = user.amount.mul(rewardsPerShare).div(1e18);
 
         IERC20(DeFiatPoints).transferFrom(_user, address(this), _amount);
         emit Deposit(_user, _amount);
@@ -252,6 +242,13 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
 
         safeTokenTransfer(msg.sender, DeFiatPoints, balance);
         emit EmergencyWithdraw(msg.sender, balance);
+    }
+
+    function isAbovePeg() public view returns (bool) {
+        uint256 tokenPrice = IAnyStakeVault(vault).getTokenPrice(DeFiatToken, DeFiatTokenLp);
+        uint256 pointsPrice = IAnyStakeVault(vault).getTokenPrice(DeFiatPoints, DeFiatPointsLp);
+        
+        return pointsPrice.mul(priceMultiplier).div(1000) > tokenPrice;
     }
 
     // Governance - Set Staking Fee

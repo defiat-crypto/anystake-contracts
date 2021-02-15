@@ -21,6 +21,7 @@ export const buyToken = async (
   const Token = await getToken(address, signer);
   const Router = await getRouter(signer);
   const WETH = await Router.WETH();
+  const balance = await Token.balanceOf(signer);
 
   await Router.swapExactETHForTokensSupportingFeeOnTransferTokens(
     "0",
@@ -32,8 +33,30 @@ export const buyToken = async (
     }
   ).then((tx) => tx.wait());
 
-  const balance = await Token.balanceOf(signer);
-  return balance;
+  const balanceAfter = await Token.balanceOf(signer);
+  return balanceAfter;
+};
+
+export const sellToken = async (
+  address: string,
+  value: BigNumberish,
+  signer: string
+): Promise<BigNumberish> => {
+  const Token = await getToken(address, signer);
+  const Router = await getRouter(signer);
+  const WETH = await Router.WETH();
+  const balance = await (await ethers.getSigner(signer)).getBalance();
+
+  await Router.swapExactTokensForETHSupportingFeeOnTransferTokens(
+    value,
+    "0",
+    [address, WETH],
+    signer,
+    Date.now() + 30000
+  ).then((tx) => tx.wait());
+
+  const balanceAfter = (await Token.balanceOf(signer)).sub(balance);
+  return balanceAfter;
 };
 
 export const addLiquidity = async (

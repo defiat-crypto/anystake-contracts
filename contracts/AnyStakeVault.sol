@@ -7,6 +7,7 @@ import "./interfaces/IAnyStake.sol";
 import "./interfaces/IAnyStakeRegulator.sol";
 import "./interfaces/IAnyStakeVault.sol";
 import "./utils/AnyStakeUtils.sol";
+import "hardhat/console.sol";
 
 // Vault distributes tokens to AnyStake, get token prices (oracle) and performs buybacks operations.
 contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
@@ -43,13 +44,13 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
     constructor(
         address _router, 
         address _gov, 
-        address _token, 
         address _points, 
+        address _token, 
         address _anystake, 
         address _regulator
     ) 
         public
-        AnyStakeUtils(_router, _gov, _token, _points)
+        AnyStakeUtils(_router, _gov, _points, _token)
     {
         anystake = _anystake;
         regulator = _regulator;
@@ -126,8 +127,7 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
             return 1e18;
         }
         
-        bool isLpToken = isLiquidityToken(token);
-        IUniswapV2Pair pair = isLpToken ? IUniswapV2Pair(token) : IUniswapV2Pair(lpToken);
+        IUniswapV2Pair pair = lpToken == address(0) ? IUniswapV2Pair(token) : IUniswapV2Pair(lpToken);
         
         uint256 wethReserves;
         uint256 tokenReserves;
@@ -139,18 +139,13 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
         
         if (tokenReserves == 0) {
             return 0;
-        } else if (isLpToken) {
+        } else if (lpToken == address(0)) {
             return wethReserves.mul(2e18).div(IERC20(token).totalSupply());
         } else {
             uint256 adjuster = 36 - uint256(IERC20(token).decimals());
             uint256 tokensPerEth = tokenReserves.mul(10**adjuster).div(wethReserves);
             return uint256(1e36).div(tokensPerEth);
         }
-    }
-
-    // Uniswap - Determine if a token is LP token
-    function isLiquidityToken(address token) internal view returns (bool) {
-        return keccak256(bytes(IERC20(token).symbol())) == keccak256(bytes("UNI-V2"));
     }
 
     // Uniswap - Buyback DeFiat Tokens (DFT) from Uniswap with ERC20 tokens
@@ -189,10 +184,7 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
      
         uint256 tokenAmount = IERC20(tokenOut).balanceOf(address(this)); // snapshot
         
-        if (IERC20(tokenIn).allowance(address(this), router) == 0) {
-            IERC20(tokenIn).approve(router, 2 ** 255);
-        }
-
+        IERC20(tokenIn).safeApprove(router, amount);
         IUniswapV2Router02(router).swapExactTokensForTokensSupportingFeeOnTransferTokens(
             amount, 
             0,

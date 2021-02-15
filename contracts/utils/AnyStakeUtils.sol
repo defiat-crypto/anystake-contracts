@@ -5,6 +5,7 @@ pragma solidity ^0.6.0;
 import "../lib/@defiat-crypto/utils/DeFiatUtils.sol";
 import "../lib/@defiat-crypto/utils/DeFiatGovernedUtils.sol";
 import "../lib/@openzeppelin/token/ERC20/SafeERC20.sol";
+import "../lib/@uniswap/interfaces/IUniswapV2Factory.sol";
 import "../lib/@uniswap/interfaces/IUniswapV2Router02.sol";
 
 abstract contract AnyStakeUtils is DeFiatGovernedUtils {
@@ -32,8 +33,8 @@ abstract contract AnyStakeUtils is DeFiatGovernedUtils {
          
         weth = IUniswapV2Router02(router).WETH();
         factory = IUniswapV2Router02(router).factory();
-        DeFiatTokenLp = address(0);// IUniswapV2Factory(factory).getPair(dft, weth);
-        DeFiatPointsLp = address(0); //IUniswapV2Factory(factory).getPair(dftp, weth);
+        DeFiatTokenLp = IUniswapV2Factory(factory).getPair(_token, weth);
+        DeFiatPointsLp = IUniswapV2Factory(factory).getPair(_points, weth);
     }
 
     function sweep(address _token) public override onlyOwner {
@@ -69,6 +70,7 @@ abstract contract AnyStakeUtils is DeFiatGovernedUtils {
         require(_token != address(0), "SetToken: Must set token value");
 
         DeFiatToken = _token;
+        DeFiatTokenLp = IUniswapV2Factory(factory).getPair(_token, weth);
         emit TokenUpdated(msg.sender, DeFiatToken);
     }
 
@@ -77,6 +79,7 @@ abstract contract AnyStakeUtils is DeFiatGovernedUtils {
         require(_points != address(0), "SetPoints: Must set points value");
 
         DeFiatPoints = _points;
+        DeFiatPointsLp = IUniswapV2Factory(factory).getPair(_points, weth);
         emit PointsUpdated(msg.sender, DeFiatPoints);
     }
 }

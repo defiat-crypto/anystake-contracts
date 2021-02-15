@@ -1,22 +1,24 @@
-import { ethers, deployments, getNamedAccounts } from "hardhat";
+import { ethers, getNamedAccounts } from "hardhat";
 import { expect } from "chai";
-import { AnyStake, AnyStakeRegulator, AnyStakeVault } from "../typechain";
 import {
-  DeFiatGov,
-  DeFiatPoints,
-  DeFiatToken,
-} from "@defiat-crypto/core-contracts/typechain";
-import { parseEther } from "ethers/lib/utils";
-import { setupStakingTest, setupTest } from "./setup";
+  setupClaimTest,
+  setupPeggedTest,
+  setupStakingTest,
+  setupTest,
+} from "./setup";
 
 describe("AnyStakeRegulator", () => {
   it("should deploy and setup Regulator correctly", async () => {
     const { mastermind } = await setupTest();
-    const { Regulator, Vault } = mastermind;
+    const { Gov, Points, Regulator, Vault } = mastermind;
 
     const vaultAddress = await Regulator.vault();
+    const actorLevel = await Gov.viewActorLevelOf(Regulator.address);
+    const discountRate = await Points.viewDiscountOf(Regulator.address);
 
     expect(vaultAddress).to.equal(Vault.address);
+    expect(actorLevel.toNumber()).eq(2);
+    expect(discountRate.toNumber()).eq(100);
   });
 
   it("should accept deposits", async () => {
@@ -32,36 +34,73 @@ describe("AnyStakeRegulator", () => {
     );
 
     const alphaInfo = await Regulator.userInfo(alpha.address);
+
+    expect(alphaInfo.amount.toString()).eq(
+      ethers.utils.parseEther("1000").toString()
+    );
   });
 
-  it("should accept withdrawals and buy Points on Uniswap", async () => {
-    const { alpha } = await setupStakingTest();
+  it("should accept withdrawals and buy Points on Uniswap (Below Peg)", async () => {
+    const { alpha } = await setupPeggedTest({ abovePeg: false });
+    const { Regulator, Points, Vault } = alpha;
+    const { pointsLp } = await getNamedAccounts();
 
-    // simulate when DFTP price is below the peg
+    const isAbovePeg = await Regulator.isAbovePeg();
+    const info = await Regulator.userInfo(alpha.address);
+    const balance = await Points.balanceOf(alpha.address);
+    const price = await Vault.getTokenPrice(Points.address, pointsLp);
+
+    await Regulator.withdraw(info.amount);
+
+    const infoAfter = await Regulator.userInfo(alpha.address);
+    const balanceAfter = await Points.balanceOf(alpha.address);
+    const priceAfter = await Vault.getTokenPrice(Points.address, pointsLp);
+
+    expect(isAbovePeg).false;
+    expect(infoAfter.amount.toNumber()).eq(0);
+    expect(balanceAfter.sub(balance).eq(info.amount.mul(90).div(100)));
+    expect(priceAfter.gt(price)).true;
   });
 
-  it("should accept withdrawals and buy DeFiat on Uniswap", async () => {
-    const { alpha } = await setupStakingTest();
+  it("should accept withdrawals and buy DeFiat on Uniswap (Above Peg)", async () => {
+    const { alpha } = await setupPeggedTest({ abovePeg: true });
+    const { Regulator, Points, Vault } = alpha;
+    const { pointsLp } = await getNamedAccounts();
 
-    // simulate when DFTP price is above the peg
+    const isAbovePeg = await Regulator.isAbovePeg();
+    const info = await Regulator.userInfo(alpha.address);
+    const balance = await Points.balanceOf(alpha.address);
+    const price = await Vault.getTokenPrice(Points.address, pointsLp);
+
+    await Regulator.withdraw(info.amount);
+
+    const infoAfter = await Regulator.userInfo(alpha.address);
+    const balanceAfter = await Points.balanceOf(alpha.address);
+    const priceAfter = await Vault.getTokenPrice(Points.address, pointsLp);
+
+    expect(isAbovePeg).true;
+    expect(infoAfter.amount.toNumber()).eq(0);
+    expect(balanceAfter.sub(balance).eq(info.amount.mul(90).div(100)));
+    expect(priceAfter.lt(price)).true;
   });
 
   it("should claim rewards", async () => {
-    const { alpha } = await setupStakingTest();
+    const { alpha } = await setupClaimTest();
     const { Regulator, Token } = alpha;
 
-    await Regulator.claim();
+    const balanceBefore = await Token.balanceOf(alpha.address);
 
-    const balance = await Token.balanceOf(alpha.address);
-    const stake = await Regulator.userInfo(alpha.address);
+    await Regulator.claim().then((tx) => tx.wait());
 
-    expect(balance.gt(0));
+    const balanceAfter = await Token.balanceOf(alpha.address);
+
+    expect(balanceAfter.gt(balanceBefore)).true;
   });
 
   it("should reject claims when no staked balance", async () => {
     const { beta } = await setupTest();
     const { Regulator } = beta;
 
-    expect(Regulator.claim()).to.be.reverted;
+    // expect(Regulator.claim()).to.be.reverted;
   });
 });

@@ -16,7 +16,6 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
 
     // EVENTS
     event Initialized(address indexed user, address vault);
-    event EpochStarted(address indexed user, uint256 epoch, uint256 epochStartBlock, uint256 cumulativeRewardsSinceStart);
     event Claim(address indexed user, uint256 indexed pid, uint256 amount);
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
@@ -25,7 +24,6 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
     event PoolAdded(address indexed user, uint256 indexed pid, address indexed stakedToken, address lpToken, uint256 allocPoints);
     event MigratorUpdated(address indexed user, address migrator);
     event PoolAllocPointsUpdated(address indexed user, uint256 indexed pid, uint256 allocPoints);
-    event PoolActiveUpdated(address indexed user, uint256 indexed pid, bool active);
     event PointStipendUpdated(address indexed user, uint256 stipend);
 
     // STRUCTS
@@ -44,7 +42,6 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         uint256 allocPoint; // How many allocation points assigned to this pool. DFTs to distribute per block. (ETH = 2.3M blocks per year)
         uint256 rewardsPerShare; // Accumulated DFTs per share, times 1e18. See below.
         uint256 lastRewardBlock; // last pool update
-        bool active; // whether pool is accepting deposits (default = true)
     }
 
     address public migrator; // contract where we may migrate too
@@ -53,8 +50,6 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
 
     PoolInfo[] public poolInfo; // array of AnyStake pools
     mapping(uint256 => mapping(address => UserInfo)) public userInfo; // mapping of (pid => (userAddress => userInfo))
-    mapping(uint256 => uint256) public epochRewards; // For easy graphing historical epoch rewards
-    mapping(uint256 => bool) public poolUpdates; // mapping of block number to pool update
     mapping(address => uint256) public pids; // quick mapping for pool ids (staked_token => pid)
 
     uint256 public stakingFee; // fee to stake ERC-20 tokens
@@ -63,12 +58,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
     uint256 public pointStipend; // amount of DFTP awarded per deposit
     uint256 public totalAllocPoint; // Total allocation points. Must be the sum of all allocation points in all pools.
     uint256 public totalBlockDelta; // Total blocks since last update
-
-    uint256 public contractStartBlock;
-    uint256 public epochCalculationStartBlock;
-    uint256 public cumulativeRewardsSinceStart;
-    uint256 public rewardsInThisEpoch;
-    uint256 public epoch;
+    uint256 public totalEligiblePools; // Amount of pools eligible for rewards
 
     modifier NoReentrant(uint256 pid, address user) {
         require(
@@ -90,7 +80,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
 
     constructor(address _router, address _gov, address _points, address _token) 
         public 
-        AnyStakeUtils(_router, _gov, _token, _points)
+        AnyStakeUtils(_router, _gov, _points, _token)
     {
         pointStipend = 1e18;
         stakingFee = 50; // 5%, base 100
@@ -102,47 +92,8 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         require(!initialized, "Initialize: AnyStake already initialized");
 
         vault = _vault;
-        contractStartBlock = block.number;
-        epochCalculationStartBlock = block.number;
         initialized = true;
         emit Initialized(msg.sender, _vault);
-    }
-
-    // Rewards - View Returns fees generated since start of this contract, DFT only
-    function averageFeesPerBlockSinceStart()
-        external
-        view
-        returns (uint256 averagePerBlock)
-    {
-        averagePerBlock = cumulativeRewardsSinceStart
-            .add(rewardsInThisEpoch)
-            .div(block.number.sub(contractStartBlock));
-    }
-
-    // Rewards - Returns averge fees in this epoch, DFT only
-    function averageFeesPerBlockEpoch()
-        external
-        view
-        returns (uint256 averagePerBlock)
-    {
-        averagePerBlock = rewardsInThisEpoch.div(
-            block.number.sub(epochCalculationStartBlock)
-        );
-    }
-
-    // Rewards - Starts a new calculation epoch, return if too soon
-    // 50k blocks = About a week
-    function startNewEpoch() public override {
-        if (epochCalculationStartBlock + 50000 < block.number) {
-            return;
-        }
-
-        epochRewards[epoch] = rewardsInThisEpoch;
-        cumulativeRewardsSinceStart = cumulativeRewardsSinceStart.add(rewardsInThisEpoch);
-        rewardsInThisEpoch = 0;
-        epochCalculationStartBlock = block.number;
-        epoch++;
-        emit EpochStarted(msg.sender, epoch, epochCalculationStartBlock, cumulativeRewardsSinceStart);
     }
 
     // Pool - Get any incoming rewards, called during Vault.distributeRewards()
@@ -152,13 +103,10 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         }
 
         pendingRewards = pendingRewards.add(amount);
-        rewardsInThisEpoch = rewardsInThisEpoch.add(amount);
     }
 
     // Pool - Mass Update all pools, start new epoch if available
-    function massUpdatePools() external override {
-        startNewEpoch(); // try to start a new rewards epoch
-
+    function massUpdatePools() public override {
         // calculate updated rewards
         uint256 length = poolInfo.length;
         for (uint256 pid = 0; pid < length; pid++) {
@@ -174,15 +122,14 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
     // Pool - Update internal
     function _updatePool(uint256 _pid) internal {
         PoolInfo storage pool = poolInfo[_pid];
-        if (pool.totalStaked == 0 || pool.lastRewardBlock >= block.number || !pool.active) {
+        if (pool.totalStaked == 0 || pool.lastRewardBlock >= block.number || pool.allocPoint == 0) {
             return;
         }
 
         // calculate total reward blocks since last update call
-        uint256 blockDelta = block.number.sub(lastRewardBlock);
-        if (poolUpdates[block.number] == false) {
-            totalBlockDelta = totalBlockDelta.add(blockDelta.mul(poolInfo.length));
-            poolUpdates[block.number] = true;
+        if (lastRewardBlock < block.number) {
+            totalBlockDelta = totalBlockDelta.add(block.number.sub(lastRewardBlock).mul(totalEligiblePools));
+            lastRewardBlock = block.number;
         }
 
         // pull rewards, returns if already done this block
@@ -199,7 +146,6 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         // double-check math since tokenSupply is not necessarily 1e18
         totalBlockDelta = totalBlockDelta.sub(poolBlockDelta);
         pendingRewards = pendingRewards.sub(poolRewards);
-        lastRewardBlock = block.number;
         pool.rewardsPerShare = pool.rewardsPerShare.add(poolRewards.mul(1e18).div(pool.totalStaked));
         pool.lastRewardBlock = block.number;
     }
@@ -244,7 +190,6 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
 
     // Pool - Deposit Tokens
     function deposit(uint256 pid, uint256 amount) external override NoReentrant(pid, msg.sender) {
-        _updatePool(pid);
         _deposit(msg.sender, pid, amount);
     }
 
@@ -254,29 +199,36 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         UserInfo storage user = userInfo[_pid][_user];
         
         require(_amount > 0, "Deposit: Cannot deposit zero tokens");
-        require(pool.active, "Deposit: Pool is not active");
+        require(pool.allocPoint > 0, "Deposit: Pool is not active");
 
-        // Claim rewards
+        if (pool.totalStaked == 0) {
+            totalEligiblePools = totalEligiblePools.add(1);
+        }
+
+        // Update and claim rewards
+        _updatePool(_pid);
         _claim(_pid, _user);
 
-        // Get tokens from user
+        // Get tokens from user, balance check to support Fee-On-Transfer tokens
+        uint256 amount = IERC20(pool.stakedToken).balanceOf(address(this));
         IERC20(pool.stakedToken).safeTransferFrom(_user, address(this), _amount);
-    
+        amount = IERC20(pool.stakedToken).balanceOf(address(this)).sub(amount);
+
         // Finalize, update user metrics
-        pool.totalStaked = pool.totalStaked.add(_amount);
-        user.amount = user.amount.add(_amount);
+        pool.totalStaked = pool.totalStaked.add(amount);
+        user.amount = user.amount.add(amount);
         user.rewardDebt = user.amount.mul(pool.rewardsPerShare).div(1e18);
+        
 
         // reward user
         IDeFiatPoints(DeFiatPoints).addPoints(_user, IDeFiatPoints(DeFiatPoints).viewTxThreshold(), pointStipend);
 
         // Transfer the total amounts from user and update pool user.amount into the AnyStake contract
-        emit Deposit(_user, _pid, _amount);
+        emit Deposit(_user, _pid, amount);
     }
 
     // Pool - Withdraw staked tokens
     function withdraw(uint256 pid, uint256 amount) external override NoReentrant(pid, msg.sender) {
-        _updatePool(pid);
         _withdraw(msg.sender, pid, amount);
     }
     
@@ -293,12 +245,18 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         require(user.amount >= _amount, "Withdraw: user amount insufficient");
         
         // claim rewards
+        _updatePool(_pid);
         _claim(_pid, _user);
 
         // update pool / user metrics
         pool.totalStaked = pool.totalStaked.sub(_amount);
         user.amount = user.amount.sub(_amount);
         user.rewardDebt = user.amount.mul(pool.rewardsPerShare).div(1e18);
+
+        // reduce eligible pools only if done by user actions
+        if (pool.totalStaked == 0 && pool.allocPoint > 0) {
+            totalEligiblePools = totalEligiblePools.sub(1);
+        }
 
         // PID = 0 : DFT-LP
         // PID = 1 : DFTP-LP
@@ -309,9 +267,11 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         uint256 remainingUserAmount = _amount.sub(stakingFeeAmount);
 
         if(stakingFeeAmount > 0){
-            // Send Fee to Vault and buy DFT
+            // Send Fee to Vault and buy DFT, balance check to support Fee-On-Transfer tokens
+            uint256 balance = IERC20(pool.stakedToken).balanceOf(vault);
             safeTokenTransfer(vault, pool.stakedToken, stakingFeeAmount);
-            IAnyStakeVault(vault).buyDeFiatWithTokens(pool.stakedToken, stakingFeeAmount);
+            balance = IERC20(pool.stakedToken).balanceOf(vault);
+            IAnyStakeVault(vault).buyDeFiatWithTokens(pool.stakedToken, balance);
         }
 
         // withdraw user tokens
@@ -319,11 +279,12 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         emit Withdraw(_user, _pid, remainingUserAmount);
     }
 
+    // Pool - migrate stake to a new contract, should only be called after 
     function migrate(uint256 pid) external NoReentrant(pid, msg.sender) {
-        _updatePool(pid);
         _migrate(msg.sender, pid);
     }
 
+    // Pool - migrate internal
     function _migrate(address _user, uint256 _pid) internal {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
@@ -331,13 +292,16 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
 
         require(migrator != address(0), "Migrate: No migrator set");
         require(balance > 0, "Migrate: No tokens to migrate");
+        require(pool.allocPoint == 0, "Migrate: Pool is still active");
+
+        _claim(_pid, _user);
 
         IERC20(pool.stakedToken).safeApprove(migrator, balance);
         IAnyStakeMigrator(migrator).migrate(_user, pool.stakedToken, balance);
         emit Migrate(_user, _pid, balance);
     }
 
-    // 
+    // Pool - withdraw all stake and forfeit rewards, skips pool update
     function emergencyWithdraw(uint256 pid) external NoReentrant(pid, msg.sender) {
         PoolInfo storage pool = poolInfo[pid];
         UserInfo storage user = userInfo[pid][msg.sender];
@@ -349,6 +313,10 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         user.amount = 0;
         user.rewardDebt = 0;
         user.lastRewardBlock = block.number;
+
+        if (pool.totalStaked == 0) {
+            totalEligiblePools = totalEligiblePools.sub(1);
+        }
 
         safeTokenTransfer(msg.sender, pool.stakedToken, balance);
         emit EmergencyWithdraw(msg.sender, pid, balance);
@@ -384,8 +352,13 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
     function addPoolBatch(
         address[] calldata tokens,
         address[] calldata lpTokens,
-        uint256[] calldata allocPoints
+        uint256[] calldata allocPoints,
+        bool withUpdate
     ) external onlyGovernor {
+        if (withUpdate) {
+            massUpdatePools();
+        }
+
         for (uint i = 0; i < tokens.length; i++) {
             _addPool(tokens[i], lpTokens[i], allocPoints[i]);
         }
@@ -395,8 +368,13 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
     function addPool(
         address token, 
         address lpToken, 
-        uint256 allocPoint
+        uint256 allocPoint,
+        bool withUpdate
     ) external onlyGovernor {
+        if (withUpdate) {
+            massUpdatePools();
+        }
+        
         _addPool(token, lpToken, allocPoint);
     }
 
@@ -412,6 +390,10 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         _blacklistedAdminWithdraw[stakedToken] = true; // stakedToken now non-withrawable by admins
         totalAllocPoint = totalAllocPoint.add(allocPoint);
 
+        if (poolInfo.length == 0) {
+            lastRewardBlock = block.number;
+        }
+
         // Add new pool
         poolInfo.push(
             PoolInfo({
@@ -420,8 +402,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
                 allocPoint: allocPoint,
                 lastRewardBlock: block.number,
                 totalStaked: 0,
-                rewardsPerShare: 0,
-                active: true
+                rewardsPerShare: 0
             })
         );
 
@@ -441,18 +422,13 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         _updatePool(_pid);
         require(poolInfo[_pid].allocPoint != _allocPoint, "SetAllocPoints: No points change");
 
+        if (_allocPoint == 0) {
+            totalEligiblePools = totalEligiblePools.sub(1);
+        }
+
         totalAllocPoint = totalAllocPoint.sub(poolInfo[_pid].allocPoint).add(_allocPoint);
         poolInfo[_pid].allocPoint = _allocPoint;
         emit PoolAllocPointsUpdated(msg.sender, _pid, _allocPoint);
-    }
-
-    // Governance - Set Pool Active for Deposits, must update to maintain reward consistency
-    function setPoolActive(uint256 _pid, bool _active) external onlyGovernor {
-        _updatePool(_pid);
-        require(poolInfo[_pid].active != _active, "SetActive: No pool change");
-
-        poolInfo[_pid].active = _active;
-        emit PoolActiveUpdated(msg.sender, _pid, _active);
     }
 
     // Governance - Set Pool Allocation Points

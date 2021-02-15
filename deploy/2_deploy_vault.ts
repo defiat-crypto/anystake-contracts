@@ -46,6 +46,7 @@ const func: DeployFunction = async ({
     // set the Vault as DFT Treasury destination and governor
     // whitelist the Anystake contracts for 0 DFT fees
     await governance.setFeeDestination(result.address).then((tx) => tx.wait());
+    await governance.setActorLevel(result.address, 2).then((tx) => tx.wait());
     await points.overrideDiscount(result.address, 100).then((tx) => tx.wait());
     console.log("AnyStake Ecosystem now whitelisted for DFT transfers");
 

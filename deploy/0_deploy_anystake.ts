@@ -4,7 +4,6 @@ import {
   DeFiatGov,
   DeFiatPoints,
 } from "@defiat-crypto/core-contracts/typechain";
-import { any } from "hardhat/internal/core/params/argumentTypes";
 
 const func: DeployFunction = async ({
   getNamedAccounts,
@@ -14,8 +13,8 @@ const func: DeployFunction = async ({
 }) => {
   const { deploy } = deployments;
   const {
-    core,
-    coreLp,
+    wbtc,
+    wbtcLp,
     gov,
     mastermind,
     points,
@@ -25,6 +24,7 @@ const func: DeployFunction = async ({
     uniswap,
     usdc,
     usdcLp,
+    zero,
   } = await getNamedAccounts();
 
   console.log("Deploying with ", mastermind);
@@ -41,26 +41,27 @@ const func: DeployFunction = async ({
       "AnyStake",
       mastermind
     )) as AnyStake;
-    const gov = (await ethers.getContract(
+    const governance = (await ethers.getContract(
       "DeFiatGov",
       mastermind
     )) as DeFiatGov;
-    const points = (await ethers.getContract(
+    const Points = (await ethers.getContract(
       "DeFiatPoints",
       mastermind
     )) as DeFiatPoints;
 
-    await gov.setActorLevel(result.address, 2).then((tx) => tx.wait());
-    await points.overrideDiscount(result.address, 100).then((tx) => tx.wait());
+    await governance.setActorLevel(result.address, 2).then((tx) => tx.wait());
+    await Points.overrideDiscount(result.address, 100).then((tx) => tx.wait());
 
     if (!network.live) {
-      // await anystake
-      //   .addPoolBatch(
-      //     [tokenLp, pointsLp, usdc, core],
-      //     ["0x", "0x", usdcLp, coreLp],
-      //     [500, 500, 100, 100]
-      //   )
-      //   .then((tx) => tx.wait());
+      await anystake
+        .addPoolBatch(
+          [tokenLp, pointsLp, usdc, wbtc],
+          [zero, zero, usdcLp, wbtcLp],
+          [500, 500, 100, 100],
+          false
+        )
+        .then((tx) => tx.wait());
     }
   }
 };

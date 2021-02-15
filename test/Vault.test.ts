@@ -1,13 +1,6 @@
-import { ethers, deployments, getNamedAccounts } from "hardhat";
+import { ethers } from "hardhat";
 import { expect } from "chai";
-import { AnyStake, AnyStakeRegulator, AnyStakeVault } from "../typechain";
-import {
-  DeFiatGov,
-  DeFiatPoints,
-  DeFiatToken,
-} from "@defiat-crypto/core-contracts/typechain";
-import { parseEther } from "ethers/lib/utils";
-import { setupStakingTest, setupTest } from "./setup";
+import { setupClaimTest, setupTest } from "./setup";
 
 describe("AnyStakeVault", () => {
   it("should deploy and setup Vault correctly", async () => {
@@ -50,33 +43,48 @@ describe("AnyStakeVault", () => {
     expect(bondedRewardsBlocksRemaining.toNumber()).eq(bondedBlocks);
   });
 
-  it("should distribute rewards on updates", async () => {
-    const { mastermind } = await setupStakingTest();
+  it("should distribute rewards on AnyStake updates", async () => {
+    const { mastermind } = await setupClaimTest();
     const { AnyStake, Regulator, Token, Vault } = mastermind;
-
-    await Token.transfer(
-      Vault.address,
-      ethers.utils.parseEther("1000")
-    ).then((tx) => tx.wait());
-
-    await AnyStake.massUpdatePools().then((tx) => tx.wait());
-
-    await Token.transfer(
-      Vault.address,
-      ethers.utils.parseEther("1000")
-    ).then((tx) => tx.wait());
 
     await Regulator.updatePool().then((tx) => tx.wait());
 
-    const anystakeRewards = await AnyStake.totalPendingRewards();
+    // rewards distro'd per pool on update, so must take balance in this test
+    const anystakeRewards = await Token.balanceOf(AnyStake.address);
     const regulatorRewards = await Regulator.pendingRewards();
-    // const regulatorStockpile = await Regulator.tokenStockpile();
+    const regulatorBuyback = await Regulator.buybackBalance();
 
     expect(anystakeRewards.toString()).eq(
-      ethers.utils.parseEther("1400").toString()
+      ethers.utils.parseEther("700").toString()
     );
     expect(regulatorRewards.toString()).eq(
-      ethers.utils.parseEther("600").toString()
+      ethers.utils.parseEther("210").toString()
+    );
+    expect(regulatorBuyback.toString()).eq(
+      ethers.utils.parseEther("90").toString()
+    );
+  });
+
+  it("should distribute rewards on Regulator updates", async () => {
+    const { mastermind } = await setupClaimTest();
+    const { AnyStake, Regulator, Token, Vault } = mastermind;
+
+    await AnyStake.massUpdatePools().then((tx) => tx.wait());
+    await Regulator.updatePool().then((tx) => tx.wait());
+
+    // rewards distro'd per pool on update, so must take balance in this test
+    const anystakeRewards = await Token.balanceOf(AnyStake.address);
+    const regulatorRewards = await Regulator.pendingRewards();
+    const regulatorBuyback = await Regulator.buybackBalance();
+
+    expect(anystakeRewards.toString()).eq(
+      ethers.utils.parseEther("700").toString()
+    );
+    expect(regulatorRewards.toString()).eq(
+      ethers.utils.parseEther("210").toString()
+    );
+    expect(regulatorBuyback.toString()).eq(
+      ethers.utils.parseEther("90").toString()
     );
   });
 });

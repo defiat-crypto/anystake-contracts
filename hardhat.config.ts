@@ -5,6 +5,7 @@ import "hardhat-deploy-ethers";
 import "hardhat-abi-exporter";
 import "hardhat-spdx-license-identifier";
 import "hardhat-typechain";
+import "hardhat-gas-reporter";
 
 task("accounts", "Prints the list of accounts", async (args, hre) => {
   const accounts = await hre.ethers.getSigners();
@@ -15,7 +16,15 @@ task("accounts", "Prints the list of accounts", async (args, hre) => {
 });
 
 const config: HardhatUserConfig = {
-  solidity: "0.6.6",
+  solidity: {
+    version: "0.6.6",
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 150,
+      },
+    },
+  },
   paths: {
     artifacts: "./build/artifacts",
     cache: "./build/cache",
@@ -31,15 +40,18 @@ const config: HardhatUserConfig = {
     runOnCompile: true,
   },
   namedAccounts: {
-    mastermind: 0, //"0x4F4B49E7f3661652F13A6D2C86d9Af4435414721",
+    mastermind: 0,
     alpha: 1,
     beta: 2,
     user: 3,
+    zero: "0x0000000000000000000000000000000000000000",
     uniswap: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
     usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     usdcLp: "0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc",
     core: "0x62359ed7505efc61ff1d56fef82158ccaffa23d7",
     coreLp: "0x32Ce7e48debdccbFE0CD037Cc89526E4382cb81b",
+    wbtc: "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+    wbtcLp: "0xbb2b8038a1640196fbe3e38816f3e67cba72d940",
     token: {
       1: "0xB6eE603933E024d8d53dDE3faa0bf98fE2a3d6f1",
       4: "0xB571d40e4A7087C1B73ce6a3f29EaDfCA022C5B2",
@@ -69,8 +81,9 @@ const config: HardhatUserConfig = {
   external: {
     contracts: [
       {
-        artifacts: "node_modules/@defiat-crypto/core-contracts/build/artifacts",
-        deploy: "node_modules/@defiat-crypto/core-contracts/build/deploy",
+        artifacts:
+          "./node_modules/@defiat-crypto/core-contracts/build/artifacts",
+        deploy: "./node_modules/@defiat-crypto/core-contracts/build/deploy",
       },
     ],
   },
@@ -85,6 +98,18 @@ const config: HardhatUserConfig = {
     },
     localhost: {
       url: "http://localhost:8545",
+    },
+    rinkeby: {
+      accounts: process.env.RINKEBY_DEPLOYER_KEY
+        ? [`0x${process.env.RINKEBY_DEPLOYER_KEY}`]
+        : undefined,
+      url: process.env.ALCHEMY_RINKEBY_KEY || "",
+    },
+    mainnet: {
+      accounts: process.env.MAINNET_DEPLOYER_KEY
+        ? [`0x${process.env.MAINNET_DEPLOYER_KEY}`]
+        : undefined,
+      url: process.env.ALCHEMY_MAINNET_KEY || "",
     },
   },
 };
