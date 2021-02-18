@@ -1,9 +1,16 @@
 import { DeployFunction } from "hardhat-deploy/types";
-import { AnyStake } from "../typechain";
+import {
+  AnyStake,
+  FeeOnTransferToken,
+  IUniswapV2Factory,
+  VariableDecimalToken,
+} from "../typechain";
 import {
   DeFiatGov,
   DeFiatPoints,
 } from "@defiat-crypto/core-contracts/typechain";
+import { addLiquidity, approveToken, getRouter } from "../utils";
+import { BigNumber } from "ethers";
 
 const func: DeployFunction = async ({
   getNamedAccounts,
@@ -35,29 +42,89 @@ const func: DeployFunction = async ({
     args: [uniswap, gov, points, token],
   });
 
+  const anystake = (await ethers.getContract(
+    "AnyStake",
+    mastermind
+  )) as AnyStake;
+  const Gov = (await ethers.getContract("DeFiatGov", mastermind)) as DeFiatGov;
+  const Points = (await ethers.getContract(
+    "DeFiatPoints",
+    mastermind
+  )) as DeFiatPoints;
+
   if (result.newlyDeployed) {
-    // batch add the pools
-    const anystake = (await ethers.getContract(
-      "AnyStake",
-      mastermind
-    )) as AnyStake;
-    const governance = (await ethers.getContract(
-      "DeFiatGov",
-      mastermind
-    )) as DeFiatGov;
-    const Points = (await ethers.getContract(
-      "DeFiatPoints",
-      mastermind
-    )) as DeFiatPoints;
-
-    await governance.setActorLevel(result.address, 2).then((tx) => tx.wait());
+    await Gov.setActorLevel(result.address, 2).then((tx) => tx.wait());
     await Points.overrideDiscount(result.address, 100).then((tx) => tx.wait());
+  }
 
-    if (!network.live) {
+  if (!network.live) {
+    await anystake
+      .addPoolBatch(
+        [tokenLp, pointsLp, usdc, wbtc],
+        [zero, zero, usdcLp, wbtcLp],
+        [500, 500, 100, 100],
+        false
+      )
+      .then((tx) => tx.wait());
+  } else if (network.name == "rinkeby") {
+    const feeToken = await deploy("FeeOnTransferToken", {
+      from: mastermind,
+      log: true,
+      args: ["1% Fee Token", "1FEE", 10],
+    });
+    const varToken = await deploy("VariableDecimalToken", {
+      from: mastermind,
+      log: true,
+      args: ["8 Decimal Token", "8BALL", 8],
+    });
+
+    if (feeToken.newlyDeployed && varToken.newlyDeployed) {
+      const FeeToken = (await ethers.getContract(
+        "FeeOnTransferToken",
+        mastermind
+      )) as FeeOnTransferToken;
+      const VarToken = (await ethers.getContract(
+        "VariableDecimalToken",
+        mastermind
+      )) as VariableDecimalToken;
+
+      await FeeToken.faucet().then((tx) => tx.wait());
+      await VarToken.faucet().then((tx) => tx.wait());
+
+      await approveToken(feeToken.address, mastermind, uniswap);
+      await approveToken(varToken.address, mastermind, uniswap);
+
+      await addLiquidity(
+        feeToken.address,
+        ethers.utils.parseEther("100"),
+        ethers.utils.parseEther("1"),
+        mastermind
+      );
+      await addLiquidity(
+        varToken.address,
+        BigNumber.from(100).mul(1e8),
+        ethers.utils.parseEther("1"),
+        mastermind
+      );
+    }
+
+    const router = await getRouter(mastermind);
+    const factoryAddress = await router.factory();
+    const wethAddress = await router.WETH();
+
+    const factory = (await ethers.getContractAt(
+      "IUniswapV2Factory",
+      factoryAddress,
+      mastermind
+    )) as IUniswapV2Factory;
+    const feeTokenLp = await factory.getPair(feeToken.address, wethAddress);
+    const varTokenLp = await factory.getPair(varToken.address, wethAddress);
+
+    if (result.newlyDeployed) {
       await anystake
         .addPoolBatch(
-          [tokenLp, pointsLp, usdc, wbtc],
-          [zero, zero, usdcLp, wbtcLp],
+          [tokenLp, pointsLp, varToken.address, feeToken.address],
+          [zero, zero, varTokenLp, feeTokenLp],
           [500, 500, 100, 100],
           false
         )

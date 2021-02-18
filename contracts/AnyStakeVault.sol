@@ -7,7 +7,6 @@ import "./interfaces/IAnyStake.sol";
 import "./interfaces/IAnyStakeRegulator.sol";
 import "./interfaces/IAnyStakeVault.sol";
 import "./utils/AnyStakeUtils.sol";
-import "hardhat/console.sol";
 
 // Vault distributes tokens to AnyStake, get token prices (oracle) and performs buybacks operations.
 contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
@@ -66,6 +65,16 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
         uint256 anystakeAmount;
         uint256 regulatorAmount;
 
+        // find the transfer fee amount, fees accumulated = balance - bondedRewards
+        if (IERC20(DeFiatToken).balanceOf(address(this)) > bondedRewards) {
+            uint256 feeAmount = IERC20(DeFiatToken).balanceOf(address(this)).sub(bondedRewards);
+            
+            // find the amounts to distribute to each contract
+            uint256 anystakeShare = feeAmount.mul(distributionRate).div(1000);
+            anystakeAmount = anystakeAmount.add(anystakeShare);
+            regulatorAmount = regulatorAmount.add(feeAmount.sub(anystakeShare));
+        }
+
         // find the bonded reward amount
         if (bondedRewards > 0) {
             // find blocks since last bond payout, dont overflow
@@ -88,17 +97,6 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
             // update bonded rewards before calc'ing fees
             bondedRewards = bondedRewards.sub(bondedAmount);
             bondedRewardsBlocksRemaining = bondedRewardsBlocksRemaining.sub(blockDelta);
-        }
-
-        // find the transfer fee amount
-        if (IERC20(DeFiatToken).balanceOf(address(this)) > bondedRewards) {
-            // fees accumulated = balance - bondedRewards
-            uint256 feeAmount = IERC20(DeFiatToken).balanceOf(address(this)).sub(bondedRewards);
-            
-            // find the amounts to distribute to each contract
-            uint256 anystakeShare = feeAmount.mul(distributionRate).div(1000);
-            anystakeAmount = anystakeAmount.add(anystakeShare);
-            regulatorAmount = regulatorAmount.add(feeAmount.sub(anystakeShare));
         }
 
         if (anystakeAmount == 0 && regulatorAmount == 0) {
@@ -127,6 +125,8 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
             return 1e18;
         }
         
+        // LP Tokens can be priced with address(0) as lpToken argument
+        // LP Token pricing is vulerable to flash loan attacks and should not be used in contract calculations
         IUniswapV2Pair pair = lpToken == address(0) ? IUniswapV2Pair(token) : IUniswapV2Pair(lpToken);
         
         uint256 wethReserves;
@@ -209,6 +209,7 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
         bondedRewards = bondedRewards.add(_amount);
         bondedRewardsBlocksRemaining = bondedRewardsBlocksRemaining.add(_blocks);
         bondedRewardsPerBlock = bondedRewards.div(bondedRewardsBlocksRemaining);
+        lastDistributionBlock = block.number;
 
         IERC20(DeFiatToken).transferFrom(msg.sender, address(this), _amount);
         emit RewardsBonded(msg.sender, _amount, _blocks);

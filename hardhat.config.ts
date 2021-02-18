@@ -59,22 +59,22 @@ const config: HardhatUserConfig = {
     },
     points: {
       1: "0xeB23dF02AB127aF9249227441BC4Df4d5230f02A",
-      4: "0x70c7d7856e1558210cfbf27b7f17853655752453",
+      4: "0xEe650cDBA51A1cFA7428a4e98Bc801B09F16466A",
       31337: "0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44",
     },
     gov: {
       1: "0x3Aa3303877A0D1c360a9FE2693AE9f31087A1381",
-      4: "0x064fd7d9c228e8a4a2bf247b432a34d6e1cb9442",
+      4: "0xfe521318261CAc118981d532C0E8D3C2Bf4C1dcE",
       31337: "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c",
     },
     tokenLp: {
       1: "",
-      4: "",
+      4: "0xF7426EAcb2b00398D4cefb3E24115c91821d6fB0",
       31337: "0xb967F16d2cc4545d168b6a5Ef4a1dF7ad1562f0d",
     },
     pointsLp: {
       1: "",
-      4: "",
+      4: "0xCEBF1e6b266DCE1a32ac57Ee4C0e3100d3198e56",
       31337: "0xd2b58626f0e56E2EE4cD888F07F544959dbDe046",
     },
   },
@@ -92,7 +92,7 @@ const config: HardhatUserConfig = {
     hardhat: {
       forking: {
         blockNumber: 11812500,
-        url: process.env.ALCHEMY_MAIN_PROD_KEY || "",
+        url: process.env.ALCHEMY_MAIN_KEY || "",
         enabled: true,
       },
     },
@@ -100,16 +100,16 @@ const config: HardhatUserConfig = {
       url: "http://localhost:8545",
     },
     rinkeby: {
-      accounts: process.env.RINKEBY_DEPLOYER_KEY
-        ? [`0x${process.env.RINKEBY_DEPLOYER_KEY}`]
+      accounts: process.env.DEPLOYER_RINKEBY_KEY
+        ? [`0x${process.env.DEPLOYER_RINKEBY_KEY}`]
         : undefined,
       url: process.env.ALCHEMY_RINKEBY_KEY || "",
     },
     mainnet: {
-      accounts: process.env.MAINNET_DEPLOYER_KEY
-        ? [`0x${process.env.MAINNET_DEPLOYER_KEY}`]
+      accounts: process.env.DEPLOYER_MAIN_KEY
+        ? [`0x${process.env.DEPLOYER_MAIN_KEY}`]
         : undefined,
-      url: process.env.ALCHEMY_MAINNET_KEY || "",
+      url: process.env.ALCHEMY_MAIN_KEY || "",
     },
   },
 };

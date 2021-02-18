@@ -7,7 +7,6 @@ import "./interfaces/IAnyStake.sol";
 import "./interfaces/IAnyStakeMigrator.sol";
 import "./interfaces/IAnyStakeVault.sol";
 import "./utils/AnyStakeUtils.sol";
-import "hardhat/console.sol";
 
 //series of pool weighted by token price (using price oracles on chain)
 contract AnyStake is IAnyStake, AnyStakeUtils {
@@ -23,6 +22,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event PoolAdded(address indexed user, uint256 indexed pid, address indexed stakedToken, address lpToken, uint256 allocPoints);
     event MigratorUpdated(address indexed user, address migrator);
+    event VaultUpdated(address indexed user, address vault);
     event PoolAllocPointsUpdated(address indexed user, uint256 indexed pid, uint256 allocPoints);
     event PointStipendUpdated(address indexed user, uint256 stipend);
 
@@ -415,6 +415,14 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
 
         migrator = _migrator;
         emit MigratorUpdated(msg.sender, _migrator);
+    }
+
+    // Governance - Set Vault
+    function setVault(address _vault) external onlyGovernor {
+        require(_vault != address(0), "SetVault: No migrator change");
+
+        vault = _vault;
+        emit VaultUpdated(msg.sender, vault);
     }
 
     // Governance - Set Pool Allocation Points, must update to maintain reward consistency

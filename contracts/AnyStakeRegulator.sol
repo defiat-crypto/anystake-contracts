@@ -7,7 +7,6 @@ import "./interfaces/IAnyStakeMigrator.sol";
 import "./interfaces/IAnyStakeRegulator.sol";
 import "./interfaces/IAnyStakeVault.sol";
 import "./utils/AnyStakeUtils.sol";
-import "hardhat/console.sol";
 
 //series of pool weighted by token price (using price oracles on chain)
 contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
@@ -24,6 +23,7 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
     event BuybackRateUpdated(address indexed user, uint256 buybackRate);
     event PriceMultiplierUpdated(address indexed user, uint256 amount);
     event MigratorUpdated(address indexed user, address migrator);
+    event VaultUpdated(address indexed user, address vault);
     event RegulatorActive(address indexed user, bool active);
 
     struct UserInfo {
@@ -205,7 +205,7 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
 
         totalShares = totalShares.sub(_amount);
         user.amount = user.amount.sub(_amount);
-        user.lastRewardBlock = block.number;
+        user.rewardDebt = user.amount.mul(rewardsPerShare).div(1e18);
 
         IERC20(DeFiatPoints).transfer(_user, remainingUserAmount);
         emit Withdraw(_user, remainingUserAmount);
@@ -284,6 +284,14 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
 
         migrator = _migrator;
         emit MigratorUpdated(msg.sender, _migrator);
+    }
+    
+    // Governance - Set Vault
+    function setVault(address _vault) external onlyGovernor {
+        require(_vault != address(0), "SetVault: No migrator change");
+
+        vault = _vault;
+        emit VaultUpdated(msg.sender, vault);
     }
 
     // Governance - Set Pool Deposits active

@@ -179,10 +179,22 @@ const setupClaiming = async (accounts: Accounts) => {
   console.log("Staked DFTP in Regulator.");
 
   // Load Vault with rewards
+  console.log("Transferring Vault fee rewards...");
   await Token.transfer(
     Vault.address,
     ethers.utils.parseEther("1000")
   ).then((tx) => tx.wait());
+  console.log("Transferred Fee rewards.");
+
+  console.log("Bonding Vault rewards...");
+  await Token.approve(Vault.address, ethers.constants.MaxUint256).then((tx) =>
+    tx.wait()
+  );
+  await Vault.addBondedRewards(
+    ethers.utils.parseEther("1000"),
+    1000
+  ).then((tx) => tx.wait());
+  console.log("Bonded rewards.");
 };
 
 const setupPegged = async (accounts: Accounts, abovePeg: boolean) => {

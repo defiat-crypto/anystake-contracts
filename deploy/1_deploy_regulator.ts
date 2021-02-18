@@ -19,18 +19,14 @@ const func: DeployFunction = async ({
     args: [uniswap, gov, points, token],
   });
 
-  if (result.newlyDeployed) {
-    // whitelist the Regulator contract for DFT fees
-    const governance = (await ethers.getContract(
-      "DeFiatGov",
-      mastermind
-    )) as DeFiatGov;
-    const Points = (await ethers.getContract(
-      "DeFiatPoints",
-      mastermind
-    )) as DeFiatPoints;
+  const Gov = (await ethers.getContract("DeFiatGov", mastermind)) as DeFiatGov;
+  const Points = (await ethers.getContract(
+    "DeFiatPoints",
+    mastermind
+  )) as DeFiatPoints;
 
-    await governance.setActorLevel(result.address, 2).then((tx) => tx.wait());
+  if (result.newlyDeployed) {
+    await Gov.setActorLevel(result.address, 2).then((tx) => tx.wait());
     await Points.overrideDiscount(result.address, 100).then((tx) => tx.wait());
   }
 };
