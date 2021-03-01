@@ -11,7 +11,6 @@ import "./utils/AnyStakeUtils.sol";
 //series of pool weighted by token price (using price oracles on chain)
 contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
     using SafeMath for uint256;
-    using SafeERC20 for IERC20;
 
     event Initialized(address indexed user, address vault);
     event Claim(address indexed user, uint256 amount);
@@ -223,7 +222,7 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         require(migrator != address(0), "Migrate: No migrator set");
         require(balance > 0, "Migrate: No tokens to migrate");
 
-        IERC20(DeFiatPoints).safeApprove(migrator, balance);
+        IERC20(DeFiatPoints).approve(migrator, balance);
         IAnyStakeMigrator(migrator).migrate(_user, DeFiatPoints, balance);
         emit Migrate(_user, balance);
     }
