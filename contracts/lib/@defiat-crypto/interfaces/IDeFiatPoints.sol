@@ -11,4 +11,5 @@ interface IDeFiatPoints {
 
     function overrideLoyaltyPoints(address _address, uint256 _points) external;
     function addPoints(address _address, uint256 _txSize, uint256 _points) external;
+    function burn(uint256 _amount) external;
 }

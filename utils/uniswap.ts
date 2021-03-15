@@ -7,7 +7,7 @@ export const approveToken = async (
   signer: string,
   spender: string
 ) => {
-  const Token = await getToken(address, signer);
+  const Token = await getERC20At(address, signer);
   await Token.approve(spender, ethers.constants.MaxUint256).then((tx) =>
     tx.wait()
   );
@@ -18,7 +18,7 @@ export const buyToken = async (
   value: BigNumberish,
   signer: string
 ): Promise<BigNumberish> => {
-  const Token = await getToken(address, signer);
+  const Token = await getERC20At(address, signer);
   const Router = await getRouter(signer);
   const WETH = await Router.WETH();
   const balance = await Token.balanceOf(signer);
@@ -42,7 +42,7 @@ export const sellToken = async (
   value: BigNumberish,
   signer: string
 ): Promise<BigNumberish> => {
-  const Token = await getToken(address, signer);
+  const Token = await getERC20At(address, signer);
   const Router = await getRouter(signer);
   const WETH = await Router.WETH();
   const balance = await (await ethers.getSigner(signer)).getBalance();
@@ -65,9 +65,10 @@ export const addLiquidity = async (
   value: BigNumberish,
   signer: string
 ): Promise<BigNumberish> => {
-  const Token = await getToken(address, signer);
+  const Token = await getERC20At(address, signer);
   const Router = await getRouter(signer);
 
+  await Token.approve(Router.address, amount).then((tx) => tx.wait());
   await Router.addLiquidityETH(
     address,
     amount,
@@ -104,6 +105,6 @@ export const getRouter = async (signer: string) => {
   )) as IUniswapV2Router02;
 };
 
-export const getToken = async (address: string, signer: string) => {
+export const getERC20At = async (address: string, signer: string) => {
   return (await ethers.getContractAt("IERC20", address, signer)) as IERC20;
 };

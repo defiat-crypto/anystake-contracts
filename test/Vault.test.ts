@@ -51,7 +51,7 @@ describe("AnyStakeVault", () => {
 
     // rewards distro'd per pool on update, so must take balance in this test
     const anystakeRewards = await Token.balanceOf(AnyStake.address);
-    const regulatorRewards = await Regulator.pendingRewards();
+    const regulatorRewards = await Token.balanceOf(Regulator.address);
     const regulatorBuyback = await Regulator.buybackBalance();
 
     expect(anystakeRewards.toString()).eq(
@@ -74,7 +74,7 @@ describe("AnyStakeVault", () => {
 
     // rewards distro'd per pool on update, so must take balance in this test
     const anystakeRewards = await Token.balanceOf(AnyStake.address);
-    const regulatorRewards = await Regulator.pendingRewards();
+    const regulatorRewards = await Token.balanceOf(Regulator.address);
     const regulatorBuyback = await Regulator.buybackBalance();
 
     expect(anystakeRewards.toString()).eq(

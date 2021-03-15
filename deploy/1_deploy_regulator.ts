@@ -3,6 +3,7 @@ import {
   DeFiatGov,
   DeFiatPoints,
 } from "@defiat-crypto/core-contracts/typechain";
+import { getGovAt, getPointsAt } from "../utils";
 
 const func: DeployFunction = async ({
   getNamedAccounts,
@@ -19,11 +20,8 @@ const func: DeployFunction = async ({
     args: [uniswap, gov, points, token],
   });
 
-  const Gov = (await ethers.getContract("DeFiatGov", mastermind)) as DeFiatGov;
-  const Points = (await ethers.getContract(
-    "DeFiatPoints",
-    mastermind
-  )) as DeFiatPoints;
+  const Gov = await getGovAt(gov, mastermind);
+  const Points = await getPointsAt(points, mastermind);
 
   if (result.newlyDeployed) {
     await Gov.setActorLevel(result.address, 2).then((tx) => tx.wait());

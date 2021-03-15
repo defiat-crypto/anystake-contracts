@@ -42,6 +42,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         uint256 allocPoint; // How many allocation points assigned to this pool. DFTs to distribute per block. (ETH = 2.3M blocks per year)
         uint256 rewardsPerShare; // Accumulated DFTs per share, times 1e18. See below.
         uint256 lastRewardBlock; // last pool update
+        bool chargeFee;
     }
 
     address public migrator; // contract where we may migrate too
@@ -83,7 +84,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         AnyStakeUtils(_router, _gov, _points, _token)
     {
         pointStipend = 1e18;
-        stakingFee = 50; // 5%, base 100
+        stakingFee = 50; // 5%, base 1000
     }
     
     // Initialize pools/rewards after the Vault has been setup
@@ -219,7 +220,6 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         user.amount = user.amount.add(amount);
         user.rewardDebt = user.amount.mul(pool.rewardsPerShare).div(1e18);
         
-
         // reward user
         IDeFiatPoints(DeFiatPoints).addPoints(_user, IDeFiatPoints(DeFiatPoints).viewTxThreshold(), pointStipend);
 
@@ -263,7 +263,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         // PID = 2 : weth (price = 1e18)
         // PID > 2 : all other tokens
         // No fee on DFT-ETH, DFTP-ETH pools
-        uint256 stakingFeeAmount = _pid >= 2 ? _amount.mul(stakingFee).div(1000) : 0; 
+        uint256 stakingFeeAmount = pool.chargeFee ? _amount.mul(stakingFee).div(1000) : 0;
         uint256 remainingUserAmount = _amount.sub(stakingFeeAmount);
 
         if(stakingFeeAmount > 0){
@@ -308,8 +308,9 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
 
         require(user.amount > 0, "EmergencyWithdraw: user amount insufficient");
 
-        uint256 balance = user.amount;
-        pool.totalStaked = pool.totalStaked.sub(balance);
+        uint256 stakingFeeAmount = pool.chargeFee ? user.amount.mul(stakingFee).div(1000) : 0;
+        uint256 remainingUserAmount = user.amount.sub(stakingFeeAmount);
+        pool.totalStaked = pool.totalStaked.sub(user.amount);
         user.amount = 0;
         user.rewardDebt = 0;
         user.lastRewardBlock = block.number;
@@ -318,8 +319,9 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
             totalEligiblePools = totalEligiblePools.sub(1);
         }
 
-        safeTokenTransfer(msg.sender, pool.stakedToken, balance);
-        emit EmergencyWithdraw(msg.sender, pid, balance);
+        safeTokenTransfer(vault, pool.stakedToken, stakingFeeAmount);
+        safeTokenTransfer(msg.sender, pool.stakedToken, remainingUserAmount);
+        emit EmergencyWithdraw(msg.sender, pid, remainingUserAmount);
     }
 
     // View - gets stakedToken price from the Vault
@@ -353,6 +355,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         address[] calldata tokens,
         address[] calldata lpTokens,
         uint256[] calldata allocPoints,
+        bool[] calldata chargeFees,
         bool withUpdate
     ) external onlyGovernor {
         if (withUpdate) {
@@ -360,7 +363,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         }
 
         for (uint i = 0; i < tokens.length; i++) {
-            _addPool(tokens[i], lpTokens[i], allocPoints[i]);
+            _addPool(tokens[i], lpTokens[i], allocPoints[i], chargeFees[i]);
         }
     }
 
@@ -369,20 +372,22 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         address token, 
         address lpToken, 
         uint256 allocPoint,
+        bool chargeFee,
         bool withUpdate
     ) external onlyGovernor {
         if (withUpdate) {
             massUpdatePools();
         }
         
-        _addPool(token, lpToken, allocPoint);
+        _addPool(token, lpToken, allocPoint, chargeFee);
     }
 
     // Governance - Add Token Pool Internal
     function _addPool(
         address stakedToken,
         address lpToken,
-        uint256 allocPoint
+        uint256 allocPoint,
+        bool chargeFee
     ) internal {
         require(pids[stakedToken] == 0, "AddPool: Token pool already added");
 
@@ -402,7 +407,8 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
                 allocPoint: allocPoint,
                 lastRewardBlock: block.number,
                 totalStaked: 0,
-                rewardsPerShare: 0
+                rewardsPerShare: 0,
+                chargeFee: chargeFee
             })
         );
 

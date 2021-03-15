@@ -4,6 +4,7 @@ import {
   DeFiatGov,
   DeFiatPoints,
 } from "@defiat-crypto/core-contracts/typechain";
+import { getGovAt, getPointsAt } from "../utils";
 
 const func: DeployFunction = async ({
   getNamedAccounts,
@@ -27,11 +28,8 @@ const func: DeployFunction = async ({
     args: [uniswap, gov, points, token, anystake.address, regulator.address],
   });
 
-  const Gov = (await ethers.getContract("DeFiatGov", mastermind)) as DeFiatGov;
-  const Points = (await ethers.getContract(
-    "DeFiatPoints",
-    mastermind
-  )) as DeFiatPoints;
+  const Gov = await getGovAt(gov, mastermind);
+  const Points = await getPointsAt(points, mastermind);
 
   if (result.newlyDeployed) {
     // set the Vault as DFT Treasury destination and governor
@@ -46,12 +44,12 @@ const func: DeployFunction = async ({
   const anystakeInit = await anystake.initialized();
   const regulatorInit = await regulator.initialized();
 
-  // if (!anystakeInit) {
-  //   await anystake.initialize(result.address).then((tx) => tx.wait());
-  // } else {
-  //   await anystake.setVault(result.address).then((tx) => tx.wait());
-  // }
-  // console.log("AnyStake Successfully Initialized.");
+  if (!anystakeInit) {
+    await anystake.initialize(result.address).then((tx) => tx.wait());
+  } else {
+    await anystake.setVault(result.address).then((tx) => tx.wait());
+  }
+  console.log("AnyStake Successfully Initialized.");
 
   if (!regulatorInit) {
     await regulator.initialize(result.address).then((tx) => tx.wait());

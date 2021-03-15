@@ -33,10 +33,10 @@ export const setupTest = deployments.createFixture(async (hre, options) => {
 export const setupDeployTest = deployments.createFixture(
   async (hre, options) => {
     await deployments.fixture([
-      "Gov",
-      "Points",
-      "Token",
-      "Uniswap",
+      // "Gov",
+      // "Points",
+      // "Token",
+      // "Uniswap",
       "AnyStake",
       "Regulator",
     ]);
@@ -90,7 +90,14 @@ const setupAccounts = async () => {
 
 const setupUniswap = async (accounts: Accounts) => {
   const { alpha, mastermind } = accounts;
-  const { usdc, wbtc, tokenLp, pointsLp } = await getNamedAccounts();
+  const {
+    usdc,
+    wbtc,
+    tokenLp,
+    pointsLp,
+    token,
+    points,
+  } = await getNamedAccounts();
   const { Points, Token } = mastermind;
 
   const TokenLp = (await ethers.getContractAt(
@@ -110,35 +117,30 @@ const setupUniswap = async (accounts: Accounts) => {
   console.log("Deposited ETH for WETH");
 
   // buy USDC and CORE test tokens
-  console.log("Buying USDC and WBTC Test Tokens...");
+  console.log("Buying Test Tokens...");
+  await buyToken(token, ethers.utils.parseEther("10"), alpha.address);
+  await buyToken(points, ethers.utils.parseEther("10"), alpha.address);
   await buyToken(usdc, ethers.utils.parseEther("10"), alpha.address);
   await buyToken(wbtc, ethers.utils.parseEther("10"), alpha.address);
   console.log("Bought Test Tokens.");
 
-  const pointsLpBalance = await PointsLp.balanceOf(mastermind.address);
-  const tokenLpBalance = await TokenLp.balanceOf(mastermind.address);
+  const pointsBalance = await Points.balanceOf(alpha.address);
+  const tokenBalance = await Token.balanceOf(alpha.address);
 
-  // send alpha dftLP, dftpLP, dft, and dftp
-  console.log("Send Alpha address DFTP and DFTP/ETH LP...");
-  await Points.overrideDiscount(mastermind.address, 100).then((tx) =>
-    tx.wait()
+  console.log("Adding DFT and DFTP Liquidity");
+  await addLiquidity(
+    points,
+    pointsBalance,
+    ethers.utils.parseEther("10"),
+    alpha.address
   );
-  await Points.overrideLoyaltyPoints(
-    alpha.address,
-    ethers.utils.parseEther("10000")
-  ).then((tx) => tx.wait());
-  await PointsLp.transfer(alpha.address, pointsLpBalance).then((tx) =>
-    tx.wait()
+  await addLiquidity(
+    token,
+    tokenBalance,
+    ethers.utils.parseEther("10"),
+    alpha.address
   );
-  console.log("Sent Alpha address Points tokens.");
-
-  console.log("Send Alpha address DFT and DFT/ETH LP...");
-  await Token.transfer(
-    alpha.address,
-    ethers.utils.parseEther("100000")
-  ).then((tx) => tx.wait());
-  await TokenLp.transfer(alpha.address, tokenLpBalance).then((tx) => tx.wait());
-  console.log("Sent Alpha address DeFiat tokens.");
+  console.log("Added LP");
 };
 
 const setupClaiming = async (accounts: Accounts) => {
@@ -191,7 +193,7 @@ const setupClaiming = async (accounts: Accounts) => {
     tx.wait()
   );
   await Vault.addBondedRewards(
-    ethers.utils.parseEther("1000"),
+    ethers.utils.parseEther("100"),
     1000
   ).then((tx) => tx.wait());
   console.log("Bonded rewards.");

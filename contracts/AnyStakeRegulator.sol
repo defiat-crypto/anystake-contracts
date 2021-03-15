@@ -43,7 +43,6 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
     uint256 public lastRewardBlock; // last block that rewards were received
     uint256 public buybackBalance; // total pending DFT awaiting stabilization
     uint256 public buybackRate; // rate of rewards stockpiled for stabilization
-    uint256 public pendingRewards; // total pending DFT rewards
     uint256 public rewardsPerShare; // DFT rewards per DFTP, times 1e18 to prevent underflow
     uint256 public totalShares; // total staked shares
 
@@ -52,6 +51,11 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
             block.number > userInfo[user].lastRewardBlock,
             "Regulator: Must wait 1 block"
         );
+        _;
+    }
+
+    modifier onlyVault() {
+        require(msg.sender == vault, "AnyStake: Only Vault allowed");
         _;
     }
 
@@ -91,11 +95,12 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
             IERC20(DeFiatToken).transfer(vault, buybackBalance);
             IAnyStakeVault(vault).buyPointsWithTokens(DeFiatToken, buybackBalance);
             IDeFiatPoints(DeFiatPoints).overrideLoyaltyPoints(vault, 0);
+            buybackBalance = 0;
         }
     }
 
     // Pool - Add rewards
-    function addReward(uint256 amount) external override {
+    function addReward(uint256 amount) external override onlyVault {
         if (amount == 0) {
             return;
         }
@@ -108,8 +113,11 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         }
 
         if (rewardAmount > 0) {
-            pendingRewards = pendingRewards.add(rewardAmount);
+            // update rewardsPerShare
+            rewardsPerShare = rewardsPerShare.add(rewardAmount.mul(1e18).div(totalShares));
         }
+
+        lastRewardBlock = block.number;
     }
 
     // Pool - Update pool rewards, pull from Vault
@@ -123,12 +131,8 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
             return;
         }
 
-        // distribute rewards
+        // distribute rewards, calls addReward()
         IAnyStakeVault(vault).distributeRewards();
-
-        // update rewardsPerShare
-        rewardsPerShare = rewardsPerShare.add(pendingRewards.mul(1e18).div(totalShares));
-        lastRewardBlock = block.number;
     }
 
     function claim() external override activated NoReentrant(msg.sender) {
@@ -140,18 +144,12 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
     function _claim(address _user) internal {
         // get pending rewards
         UserInfo storage user = userInfo[_user];
-        uint256 pending = user.amount.mul(rewardsPerShare).div(1e18).sub(user.rewardDebt);
+        uint256 pending = pending(_user);
         if (pending == 0) {
             return;
         }
 
-        // don't overflow
-        if (pending > pendingRewards) {
-            pending = pendingRewards;
-        }
-
         // update pool / user metrics
-        pendingRewards = pendingRewards.sub(pending);
         user.rewardDebt = user.amount.mul(rewardsPerShare).div(1e18);
         user.lastRewardBlock = block.number;
         
@@ -227,20 +225,22 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         emit Migrate(_user, balance);
     }
 
-    // 
+    // Emergency withdraw all basis, burn the staking fee
     function emergencyWithdraw() external NoReentrant(msg.sender) {
         UserInfo storage user = userInfo[msg.sender];
 
         require(user.amount > 0, "EmergencyWithdraw: user amount insufficient");
 
-        uint256 balance = user.amount;
-        totalShares = totalShares.sub(balance);
+        uint256 feeAmount = user.amount.mul(stakingFee).div(1000);
+        uint256 remainingUserAmount = user.amount.sub(feeAmount);
+        totalShares = totalShares.sub(user.amount);
         user.amount = 0;
         user.rewardDebt = 0;
         user.lastRewardBlock = block.number;
 
-        safeTokenTransfer(msg.sender, DeFiatPoints, balance);
-        emit EmergencyWithdraw(msg.sender, balance);
+        IDeFiatPoints(DeFiatPoints).burn(feeAmount);
+        safeTokenTransfer(msg.sender, DeFiatPoints, remainingUserAmount);
+        emit EmergencyWithdraw(msg.sender, remainingUserAmount);
     }
 
     function isAbovePeg() public view returns (bool) {
@@ -249,6 +249,17 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         
         return pointsPrice.mul(priceMultiplier).div(1000) > tokenPrice;
     }
+
+    // View - Pending DFT Rewards for user in pool
+    function pending(address _user)
+        public
+        view
+        returns (uint256)
+    {
+        UserInfo memory user = userInfo[_user];
+        return user.amount.mul(rewardsPerShare).div(1e18).sub(user.rewardDebt);
+    }
+
 
     // Governance - Set Staking Fee
     function setStakingFee(uint256 _stakingFee) external onlyGovernor {

@@ -1,16 +1,13 @@
-import { ethers } from "hardhat";
+import { ethers, getNamedAccounts } from "hardhat";
 import { AnyStake, AnyStakeRegulator, AnyStakeVault } from "../typechain";
-import {
-  getGov,
-  getPoints,
-  getToken,
-  // @ts-ignore
-} from "@defiat-crypto/core-contracts/build";
 import {
   DeFiatGov,
   DeFiatPoints,
   DeFiatToken,
 } from "@defiat-crypto/core-contracts/typechain";
+import DeFiatGovAbi from "@defiat-crypto/core-contracts/abi/DeFiatGov.json";
+import DeFiatPointsAbi from "@defiat-crypto/core-contracts/abi/DeFiatPoints.json";
+import DeFiatTokenAbi from "@defiat-crypto/core-contracts/abi/DeFiatToken.json";
 
 export interface Accounts {
   mastermind: Account;
@@ -29,9 +26,10 @@ export interface Account {
 }
 
 export const getAccount = async (account: string): Promise<Account> => {
-  const Gov = (await getGov(account)) as DeFiatGov;
-  const Points = (await getPoints(account)) as DeFiatPoints;
-  const Token = (await getToken(account)) as DeFiatToken;
+  const { gov, points, token } = await getNamedAccounts();
+  const Gov = await getGovAt(gov, account);
+  const Points = await getPointsAt(points, account);
+  const Token = await getTokenAt(token, account);
   const AnyStake = await getAnyStake(account);
   const Regulator = await getRegulator(account);
   const Vault = await getVault(account);
@@ -63,4 +61,33 @@ export const getVault = async (account: string) => {
     "AnyStakeVault",
     account
   )) as AnyStakeVault;
+};
+
+export const getTokenAt = async (
+  token: string,
+  account: string
+): Promise<DeFiatToken> => {
+  return (await ethers.getContractAt(
+    DeFiatTokenAbi,
+    token,
+    account
+  )) as DeFiatToken;
+};
+
+export const getPointsAt = async (
+  points: string,
+  account: string
+): Promise<DeFiatPoints> => {
+  return (await ethers.getContractAt(
+    DeFiatPointsAbi,
+    points,
+    account
+  )) as DeFiatPoints;
+};
+
+export const getGovAt = async (
+  gov: string,
+  account: string
+): Promise<DeFiatGov> => {
+  return (await ethers.getContractAt(DeFiatGovAbi, gov, account)) as DeFiatGov;
 };

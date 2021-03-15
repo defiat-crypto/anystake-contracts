@@ -9,7 +9,13 @@ import {
   DeFiatGov,
   DeFiatPoints,
 } from "@defiat-crypto/core-contracts/typechain";
-import { addLiquidity, approveToken, getRouter } from "../utils";
+import {
+  addLiquidity,
+  approveToken,
+  getGovAt,
+  getPointsAt,
+  getRouter,
+} from "../utils";
 import { BigNumber } from "ethers";
 
 const func: DeployFunction = async ({
@@ -46,15 +52,17 @@ const func: DeployFunction = async ({
     "AnyStake",
     mastermind
   )) as AnyStake;
-  const Gov = (await ethers.getContract("DeFiatGov", mastermind)) as DeFiatGov;
-  const Points = (await ethers.getContract(
-    "DeFiatPoints",
-    mastermind
-  )) as DeFiatPoints;
+  const s = await anystake.governance();
+  console.log(s);
+
+  const Gov = await getGovAt(gov, mastermind);
+  const Points = await getPointsAt(points, mastermind);
 
   if (result.newlyDeployed) {
     await Gov.setActorLevel(result.address, 2).then((tx) => tx.wait());
+    console.log("set gov");
     await Points.overrideDiscount(result.address, 100).then((tx) => tx.wait());
+    console.log("discount");
   }
 
   if (!network.live) {
@@ -63,9 +71,11 @@ const func: DeployFunction = async ({
         [tokenLp, pointsLp, usdc, wbtc],
         [zero, zero, usdcLp, wbtcLp],
         [500, 500, 100, 100],
+        [false, false, true, true],
         false
       )
       .then((tx) => tx.wait());
+    console.log("batch");
   } else if (network.name == "rinkeby") {
     const feeToken = await deploy("FeeOnTransferToken", {
       from: mastermind,
@@ -126,6 +136,7 @@ const func: DeployFunction = async ({
           [tokenLp, pointsLp, varToken.address, feeToken.address],
           [zero, zero, varTokenLp, feeTokenLp],
           [500, 500, 100, 100],
+          [false, false, true, true],
           false
         )
         .then((tx) => tx.wait());
