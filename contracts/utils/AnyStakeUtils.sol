@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.6.0;
+pragma solidity 0.6.6;
 
 import "../lib/@defiat-crypto/utils/DeFiatUtils.sol";
 import "../lib/@defiat-crypto/utils/DeFiatGovernedUtils.sol";
@@ -13,6 +13,7 @@ abstract contract AnyStakeUtils is DeFiatGovernedUtils {
 
     event PointsUpdated(address indexed user, address points);
     event TokenUpdated(address indexed user, address token);
+    event UniswapUpdated(address indexed user, address router, address weth, address factory);
   
     address public router;
     address public factory;
@@ -81,5 +82,15 @@ abstract contract AnyStakeUtils is DeFiatGovernedUtils {
         DeFiatPoints = _points;
         DeFiatPointsLp = IUniswapV2Factory(factory).getPair(_points, weth);
         emit PointsUpdated(msg.sender, DeFiatPoints);
+    }
+
+    function setUniswap(address _router) external onlyGovernor {
+        require(_router != router, "SetUniswap: No uniswap change");
+        require(_router != address(0), "SetUniswap: Must set uniswap value");
+
+        router = _router;
+        weth = IUniswapV2Router02(router).WETH();
+        factory = IUniswapV2Router02(router).factory();
+        emit UniswapUpdated(msg.sender, router, weth, factory);
     }
 }

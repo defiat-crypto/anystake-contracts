@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.6.0;
+pragma solidity 0.6.6;
 
 import "./lib/@defiat-crypto/interfaces/IDeFiatPoints.sol";
 import "./interfaces/IAnyStakeMigrator.sol";
@@ -44,6 +44,7 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
     uint256 public buybackBalance; // total pending DFT awaiting stabilization
     uint256 public buybackRate; // rate of rewards stockpiled for stabilization
     uint256 public rewardsPerShare; // DFT rewards per DFTP, times 1e18 to prevent underflow
+    uint256 public pendingRewards; // total pending DFT rewards
     uint256 public totalShares; // total staked shares
 
     modifier NoReentrant(address user) {
@@ -113,11 +114,8 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         }
 
         if (rewardAmount > 0) {
-            // update rewardsPerShare
-            rewardsPerShare = rewardsPerShare.add(rewardAmount.mul(1e18).div(totalShares));
+            pendingRewards = pendingRewards.add(rewardAmount);
         }
-
-        lastRewardBlock = block.number;
     }
 
     // Pool - Update pool rewards, pull from Vault
@@ -133,6 +131,11 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
 
         // distribute rewards, calls addReward()
         IAnyStakeVault(vault).distributeRewards();
+
+        // update rewardsPerShare            
+        rewardsPerShare = rewardsPerShare.add(pendingRewards.mul(1e18).div(totalShares));
+        lastRewardBlock = block.number;
+        pendingRewards = 0;
     }
 
     function claim() external override activated NoReentrant(msg.sender) {

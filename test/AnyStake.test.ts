@@ -86,7 +86,10 @@ describe("AnyStake", () => {
 
     const balanceBefore = await Token.balanceOf(alpha.address);
 
-    await AnyStake.claimAll().then((tx) => tx.wait());
+    await AnyStake.claim(0).then((tx) => tx.wait());
+    await AnyStake.claim(1).then((tx) => tx.wait());
+    await AnyStake.claim(2).then((tx) => tx.wait());
+    await AnyStake.claim(3).then((tx) => tx.wait());
 
     const balanceAfter = await Token.balanceOf(alpha.address);
     const lpRewardPending = await AnyStake.pending(0, alpha.address);

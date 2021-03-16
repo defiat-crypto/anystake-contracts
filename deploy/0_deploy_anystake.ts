@@ -38,6 +38,10 @@ const func: DeployFunction = async ({
     usdc,
     usdcLp,
     zero,
+    feeToken,
+    feeTokenLp,
+    varToken,
+    varTokenLp,
   } = await getNamedAccounts();
 
   console.log("Deploying with ", mastermind);
@@ -77,63 +81,63 @@ const func: DeployFunction = async ({
       .then((tx) => tx.wait());
     console.log("batch");
   } else if (network.name == "rinkeby") {
-    const feeToken = await deploy("FeeOnTransferToken", {
-      from: mastermind,
-      log: true,
-      args: ["1% Fee Token", "1FEE", 10],
-    });
-    const varToken = await deploy("VariableDecimalToken", {
-      from: mastermind,
-      log: true,
-      args: ["8 Decimal Token", "8BALL", 8],
-    });
+    // const feeToken = await deploy("FeeOnTransferToken", {
+    //   from: mastermind,
+    //   log: true,
+    //   args: ["1% Fee Token", "1FEE", 10],
+    // });
+    // const varToken = await deploy("VariableDecimalToken", {
+    //   from: mastermind,
+    //   log: true,
+    //   args: ["8 Decimal Token", "8BALL", 8],
+    // });
 
-    if (feeToken.newlyDeployed && varToken.newlyDeployed) {
-      const FeeToken = (await ethers.getContract(
-        "FeeOnTransferToken",
-        mastermind
-      )) as FeeOnTransferToken;
-      const VarToken = (await ethers.getContract(
-        "VariableDecimalToken",
-        mastermind
-      )) as VariableDecimalToken;
+    // if (feeToken.newlyDeployed && varToken.newlyDeployed) {
+    //   const FeeToken = (await ethers.getContract(
+    //     "FeeOnTransferToken",
+    //     mastermind
+    //   )) as FeeOnTransferToken;
+    //   const VarToken = (await ethers.getContract(
+    //     "VariableDecimalToken",
+    //     mastermind
+    //   )) as VariableDecimalToken;
 
-      await FeeToken.faucet().then((tx) => tx.wait());
-      await VarToken.faucet().then((tx) => tx.wait());
+    //   await FeeToken.faucet().then((tx) => tx.wait());
+    //   await VarToken.faucet().then((tx) => tx.wait());
 
-      await approveToken(feeToken.address, mastermind, uniswap);
-      await approveToken(varToken.address, mastermind, uniswap);
+    //   await approveToken(feeToken.address, mastermind, uniswap);
+    //   await approveToken(varToken.address, mastermind, uniswap);
 
-      await addLiquidity(
-        feeToken.address,
-        ethers.utils.parseEther("100"),
-        ethers.utils.parseEther("1"),
-        mastermind
-      );
-      await addLiquidity(
-        varToken.address,
-        BigNumber.from(100).mul(1e8),
-        ethers.utils.parseEther("1"),
-        mastermind
-      );
-    }
+    //   await addLiquidity(
+    //     feeToken.address,
+    //     ethers.utils.parseEther("100"),
+    //     ethers.utils.parseEther("1"),
+    //     mastermind
+    //   );
+    //   await addLiquidity(
+    //     varToken.address,
+    //     BigNumber.from(100).mul(1e8),
+    //     ethers.utils.parseEther("1"),
+    //     mastermind
+    //   );
+    // }
 
-    const router = await getRouter(mastermind);
-    const factoryAddress = await router.factory();
-    const wethAddress = await router.WETH();
+    // const router = await getRouter(mastermind);
+    // const factoryAddress = await router.factory();
+    // const wethAddress = await router.WETH();
 
-    const factory = (await ethers.getContractAt(
-      "IUniswapV2Factory",
-      factoryAddress,
-      mastermind
-    )) as IUniswapV2Factory;
-    const feeTokenLp = await factory.getPair(feeToken.address, wethAddress);
-    const varTokenLp = await factory.getPair(varToken.address, wethAddress);
+    // const factory = (await ethers.getContractAt(
+    //   "IUniswapV2Factory",
+    //   factoryAddress,
+    //   mastermind
+    // )) as IUniswapV2Factory;
+    // const feeTokenLp = await factory.getPair(feeToken.address, wethAddress);
+    // const varTokenLp = await factory.getPair(varToken.address, wethAddress);
 
     if (result.newlyDeployed) {
       await anystake
         .addPoolBatch(
-          [tokenLp, pointsLp, varToken.address, feeToken.address],
+          [tokenLp, pointsLp, varToken, feeToken],
           [zero, zero, varTokenLp, feeTokenLp],
           [500, 500, 100, 100],
           [false, false, true, true],

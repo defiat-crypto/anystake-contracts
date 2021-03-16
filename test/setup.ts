@@ -16,14 +16,6 @@ import { waffleChai } from "@ethereum-waffle/chai";
 import { IERC20 } from "../typechain";
 chai.use(waffleChai);
 
-export const tokens = [
-  { address: "", amount: "" },
-  { address: "", amount: "" },
-  { address: "", amount: "" },
-  { address: "", amount: "" },
-  { address: "", amount: "" },
-];
-
 export const setupTest = deployments.createFixture(async (hre, options) => {
   await deployments.fixture();
   const accounts = await setupAccounts();

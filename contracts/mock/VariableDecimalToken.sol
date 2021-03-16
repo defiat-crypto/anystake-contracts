@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.6.0;
+pragma solidity 0.6.6;
 
 import "../lib/@openzeppelin/utils/Context.sol";
 import "../lib/@openzeppelin/token/ERC20/IERC20.sol";

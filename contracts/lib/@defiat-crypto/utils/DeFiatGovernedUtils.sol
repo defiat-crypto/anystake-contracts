@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.6.0;
+pragma solidity 0.6.6;
 
 import "./DeFiatUtils.sol";
 import "../interfaces/IDeFiatGov.sol";

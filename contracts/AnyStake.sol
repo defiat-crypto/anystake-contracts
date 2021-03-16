@@ -24,6 +24,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
     event MigratorUpdated(address indexed user, address migrator);
     event VaultUpdated(address indexed user, address vault);
     event PoolAllocPointsUpdated(address indexed user, uint256 indexed pid, uint256 allocPoints);
+    event PoolChargeFeeUpdated(address indexed user, uint256 indexed pid, bool chargeFee);
     event PointStipendUpdated(address indexed user, uint256 stipend);
 
     // STRUCTS
@@ -145,24 +146,10 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
             .div(totalAllocPoint);
         
         // double-check math since tokenSupply is not necessarily 1e18
-        totalBlockDelta = totalBlockDelta.sub(poolBlockDelta);
-        pendingRewards = pendingRewards.sub(poolRewards);
+        totalBlockDelta = poolBlockDelta > totalBlockDelta ? 0 : totalBlockDelta.sub(poolBlockDelta);
+        pendingRewards = pendingRewards > poolRewards ? 0 : pendingRewards.sub(poolRewards);
         pool.rewardsPerShare = pool.rewardsPerShare.add(poolRewards.mul(1e18).div(pool.totalStaked));
         pool.lastRewardBlock = block.number;
-    }
-
-    // Pool - Claim from all pools
-    function claimAll() external override {
-        uint256 length = poolInfo.length;
-        for (uint256 pid = 0; pid < length; pid++) {
-            // update and claim if user hasnt updated this block and has a stake
-            if (block.number > userInfo[pid][msg.sender].lastRewardBlock
-                && userInfo[pid][msg.sender].amount > 0
-            ) {
-                _updatePool(pid);
-                _claim(pid, msg.sender);
-            }
-        }  
     }
 
     // Pool - Claim rewards
@@ -204,6 +191,11 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
 
         if (pool.totalStaked == 0) {
             totalEligiblePools = totalEligiblePools.add(1);
+            pool.lastRewardBlock = block.number; // reset reward block
+
+            if (lastRewardBlock == 0) {
+                lastRewardBlock = block.number;
+            }
         }
 
         // Update and claim rewards
@@ -395,10 +387,6 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         _blacklistedAdminWithdraw[stakedToken] = true; // stakedToken now non-withrawable by admins
         totalAllocPoint = totalAllocPoint.add(allocPoint);
 
-        if (poolInfo.length == 0) {
-            lastRewardBlock = block.number;
-        }
-
         // Add new pool
         poolInfo.push(
             PoolInfo({
@@ -443,6 +431,15 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         totalAllocPoint = totalAllocPoint.sub(poolInfo[_pid].allocPoint).add(_allocPoint);
         poolInfo[_pid].allocPoint = _allocPoint;
         emit PoolAllocPointsUpdated(msg.sender, _pid, _allocPoint);
+    }
+
+    // Governance - Set Pool Allocation Points, must update to maintain reward consistency
+    function setPoolChargeFee(uint256 _pid, bool _chargeFee) external onlyGovernor {
+        _updatePool(_pid);
+        require(poolInfo[_pid].chargeFee != _chargeFee, "SetChargeFee: No fee change");
+
+        poolInfo[_pid].chargeFee = _chargeFee;
+        emit PoolChargeFeeUpdated(msg.sender, _pid, _chargeFee);
     }
 
     // Governance - Set Pool Allocation Points

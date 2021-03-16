@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.6.0;
+pragma solidity 0.6.6;
 
 interface IAnyStakeVault {
     function buyDeFiatWithTokens(address token, uint256 amount) external;

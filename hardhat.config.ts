@@ -59,7 +59,7 @@ const config: HardhatUserConfig = {
     },
     points: {
       1: "0xDe3E18eCB613498b9a1483Af51394Ec2259BcD0a",
-      4: "0xEe650cDBA51A1cFA7428a4e98Bc801B09F16466A",
+      4: "0xb8b8B746ab4B983C0960501146ba6079c1fd2Af3",
       31337: "0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44",
     },
     gov: {
@@ -74,8 +74,20 @@ const config: HardhatUserConfig = {
     },
     pointsLp: {
       1: "0xb4c36b752b706836ab90ed4e78b058150ae9ed59",
-      4: "0xCEBF1e6b266DCE1a32ac57Ee4C0e3100d3198e56",
+      4: "0x23A4c03d18666970200A202116Aa8752fbB5a2FB",
       31337: "0xd2b58626f0e56E2EE4cD888F07F544959dbDe046",
+    },
+    varToken: {
+      4: "0xd5d087d31ddcc58c70d0441554dff9c9874c882f",
+    },
+    varTokenLp: {
+      4: "0x29bdf6ef0fe951fb6ea1851084c831cd8386e060",
+    },
+    feeToken: {
+      4: "0x549D392c89ee87C35A75808208b0C8F383AD8B01",
+    },
+    feeTokenLp: {
+      4: "0x0a091ae2ad52e975c3a7cc20e30ae01efd3e9c90",
     },
   },
   // external: {
