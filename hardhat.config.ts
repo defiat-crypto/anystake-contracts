@@ -121,7 +121,7 @@ const config: HardhatUserConfig = {
         },
       ],
       forking: {
-        blockNumber: 12042485,
+        blockNumber: 12049485,
         url: process.env.ALCHEMY_MAIN_KEY || "",
         enabled: true,
       },

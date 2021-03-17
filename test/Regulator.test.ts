@@ -63,9 +63,11 @@ describe("AnyStakeRegulator", () => {
   });
 
   it("should accept withdrawals and buy DeFiat on Uniswap (Above Peg)", async () => {
-    const { alpha } = await setupPeggedTest({ abovePeg: true });
+    const { alpha, mastermind } = await setupPeggedTest({ abovePeg: true });
     const { Regulator, Points, Vault } = alpha;
     const { pointsLp } = await getNamedAccounts();
+
+    // await mastermind.Regulator.setPriceMultiplier(2500).then((tx) => tx.wait());
 
     const isAbovePeg = await Regulator.isAbovePeg();
     const info = await Regulator.userInfo(alpha.address);

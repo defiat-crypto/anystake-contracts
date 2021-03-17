@@ -3,7 +3,6 @@
 pragma solidity 0.6.6;
 
 interface IAnyStake {
-    function massUpdatePools() external;
     function addReward(uint256 amount) external;
     function claim(uint256 pid) external;
     function deposit(uint256 pid, uint256 amount) external;

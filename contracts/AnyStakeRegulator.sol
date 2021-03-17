@@ -69,7 +69,7 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         public 
         AnyStakeUtils(_router, _gov, _points, _token)
     {
-        priceMultiplier = 1000; // 1000 / 1000 = 1
+        priceMultiplier = 100; // 100 / 1000 = 0.1
         stakingFee = 100; // 10%
         buybackRate = 300; // 30%
     }
@@ -87,14 +87,15 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
     function stabilize(uint256 amount) internal {
         if (isAbovePeg()) {
             // Above Peg: sell DFTP, buy DFT, add to rewards
-            
+
             IERC20(DeFiatPoints).transfer(vault, amount);
             IAnyStakeVault(vault).buyDeFiatWithTokens(DeFiatPoints, amount);
         } else {
-            // Below Peg: sell DFT, buy DFTP, burn proceeds (deflationary)
+            // Below Peg: sell DFT, buy DFTP, burn all proceeds (deflationary)
 
             IERC20(DeFiatToken).transfer(vault, buybackBalance);
             IAnyStakeVault(vault).buyPointsWithTokens(DeFiatToken, buybackBalance);
+            IDeFiatPoints(DeFiatPoints).burn(amount);
             IDeFiatPoints(DeFiatPoints).overrideLoyaltyPoints(vault, 0);
             buybackBalance = 0;
         }

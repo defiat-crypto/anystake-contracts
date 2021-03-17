@@ -47,44 +47,52 @@ describe("AnyStakeVault", () => {
     const { mastermind } = await setupClaimTest();
     const { AnyStake, Regulator, Token, Vault } = mastermind;
 
-    await Regulator.updatePool().then((tx) => tx.wait());
+    const balanceBefore = await Token.balanceOf(Vault.address);
+
+    await AnyStake.updatePool(0).then((tx) => tx.wait());
+
+    const balanceAfter = await Token.balanceOf(Vault.address);
+    const totalRewards = balanceBefore.sub(balanceAfter);
+    const poolInfo = await AnyStake.poolInfo(0);
 
     // rewards distro'd per pool on update, so must take balance in this test
-    const anystakeRewards = await Token.balanceOf(AnyStake.address);
+    const anystakeRewards = (await Token.balanceOf(AnyStake.address)).sub(
+      poolInfo.totalStaked
+    );
     const regulatorRewards = await Token.balanceOf(Regulator.address);
     const regulatorBuyback = await Regulator.buybackBalance();
 
-    expect(anystakeRewards.toString()).eq(
-      ethers.utils.parseEther("700").toString()
-    );
-    expect(regulatorRewards.toString()).eq(
-      ethers.utils.parseEther("210").toString()
-    );
-    expect(regulatorBuyback.toString()).eq(
-      ethers.utils.parseEther("90").toString()
-    );
+    console.log("total", totalRewards.toString());
+    console.log("t2", anystakeRewards.add(regulatorRewards).toString());
+    console.log("r", regulatorRewards.toString());
+    console.log("bb", regulatorBuyback.toString());
+
+    expect(totalRewards.eq(anystakeRewards.add(regulatorRewards))).true;
+    expect(totalRewards.mul(7).div(10).eq(anystakeRewards)).true;
+    expect(regulatorRewards.mul(3).div(10).eq(regulatorBuyback)).true;
   });
 
   it("should distribute rewards on Regulator updates", async () => {
     const { mastermind } = await setupClaimTest();
     const { AnyStake, Regulator, Token, Vault } = mastermind;
 
-    await AnyStake.massUpdatePools().then((tx) => tx.wait());
+    const balanceBefore = await Token.balanceOf(Vault.address);
+
     await Regulator.updatePool().then((tx) => tx.wait());
 
     // rewards distro'd per pool on update, so must take balance in this test
-    const anystakeRewards = await Token.balanceOf(AnyStake.address);
+    const balanceAfter = await Token.balanceOf(Vault.address);
+    const totalRewards = balanceBefore.sub(balanceAfter);
+    const poolInfo = await AnyStake.poolInfo(0);
+
+    const anystakeRewards = (await Token.balanceOf(AnyStake.address)).sub(
+      poolInfo.totalStaked
+    );
     const regulatorRewards = await Token.balanceOf(Regulator.address);
     const regulatorBuyback = await Regulator.buybackBalance();
 
-    expect(anystakeRewards.toString()).eq(
-      ethers.utils.parseEther("700").toString()
-    );
-    expect(regulatorRewards.toString()).eq(
-      ethers.utils.parseEther("210").toString()
-    );
-    expect(regulatorBuyback.toString()).eq(
-      ethers.utils.parseEther("90").toString()
-    );
+    expect(totalRewards.eq(anystakeRewards.add(regulatorRewards))).true;
+    expect(totalRewards.mul(7).div(10).eq(anystakeRewards)).true;
+    expect(regulatorRewards.mul(3).div(10).eq(regulatorBuyback)).true;
   });
 });

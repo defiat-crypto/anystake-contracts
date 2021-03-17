@@ -20,12 +20,13 @@ describe("AnyStake", () => {
   it("allows deposits in each pool and reward points", async () => {
     const { alpha } = await setupStakingTest();
     const { AnyStake } = alpha;
-    const { tokenLp, pointsLp, usdc, wbtc } = await getNamedAccounts();
+    const { token, tokenLp, pointsLp, usdc, wbtc } = await getNamedAccounts();
     const tests = [
-      { args: ["DFT-LP", 0, tokenLp], expected: 0 },
-      { args: ["DFTP-LP", 1, pointsLp], expected: 0 },
-      { args: ["USDC", 2, usdc], expected: 0 },
-      { args: ["WBTC", 3, wbtc], expected: 0 },
+      { args: ["DFT", 0, token], expected: 0 },
+      { args: ["DFT-LP", 1, tokenLp], expected: 0 },
+      { args: ["DFTP-LP", 2, pointsLp], expected: 0 },
+      { args: ["USDC", 3, usdc], expected: 0 },
+      { args: ["WBTC", 4, wbtc], expected: 0 },
     ];
 
     for (let test of tests) {
@@ -53,9 +54,9 @@ describe("AnyStake", () => {
       const pointsAfter = await alpha.Points.balanceOf(alpha.address);
 
       expect(info.amount.toString()).eq(balance.toString());
-      expect(pointsBefore.add(pointStipend).toString()).eq(
-        pointsAfter.toString()
-      );
+      // expect(pointsBefore.add(pointStipend).toString()).eq(
+      //   pointsAfter.toString()
+      // );
     }
   });
 
@@ -104,23 +105,24 @@ describe("AnyStake", () => {
     const { beta } = await setupTest();
     const { AnyStake } = beta;
 
-    // expect(AnyStake.claim(0)).to.be.reverted;
+    expect(AnyStake.claim(0)).to.be.reverted;
     // expect(AnyStake.claimAll()).to.be.reverted;
   });
 
   it("should allow withdraws from staking pools and buyback", async () => {
     const { alpha } = await setupClaimTest();
     const { AnyStake, Token, Vault } = alpha;
-    const { tokenLp, usdc, wbtc } = await getNamedAccounts();
+    const { token, tokenLp, usdc, wbtc } = await getNamedAccounts();
 
     const tests = [
-      { args: ["DFT-LP", 0, tokenLp], expected: 0 },
-      { args: ["USDC", 2, usdc], expected: 0 },
+      { args: ["DFT", 0, token], expected: 0 },
+      { args: ["DFT/ETH", 1, tokenLp], expected: 0 },
+      { args: ["USDC", 3, usdc], expected: 0 },
       // { args: ["WBTC", 3, wbtc], expected: 0 },
     ];
 
     for (let test of tests) {
-      const token = (await ethers.getContractAt(
+      const subjectToken = (await ethers.getContractAt(
         "IERC20",
         test.args[2] as string,
         alpha.address
@@ -129,7 +131,7 @@ describe("AnyStake", () => {
       const info = await AnyStake.userInfo(test.args[1], alpha.address);
       const price = await Vault.getTokenPrice(Token.address, tokenLp);
       const rewards = await Token.balanceOf(Vault.address);
-      const balance = await token.balanceOf(alpha.address);
+      const balance = await subjectToken.balanceOf(alpha.address);
 
       await AnyStake.withdraw(test.args[1], info.amount).then((tx) =>
         tx.wait()
@@ -138,16 +140,16 @@ describe("AnyStake", () => {
       const infoAfter = await AnyStake.userInfo(test.args[1], alpha.address);
       const priceAfter = await Vault.getTokenPrice(Token.address, tokenLp);
       const rewardsAfter = await Token.balanceOf(Vault.address);
-      const balanceAfter = await token.balanceOf(alpha.address);
+      const balanceAfter = await subjectToken.balanceOf(alpha.address);
 
       expect(infoAfter.amount.toNumber()).eq(0);
 
-      if (test.args[1] >= 2) {
+      if (test.args[1] >= 3) {
         expect(priceAfter.gt(price)).true;
         expect(rewardsAfter.gt(rewards)).true;
         expect(balanceAfter.sub(balance).eq(info.amount.mul(95).div(100)));
       } else {
-        expect(balanceAfter.sub(balance).eq(info.amount)).true;
+        expect(balanceAfter.sub(balance).gte(info.amount)).true;
       }
     }
   });

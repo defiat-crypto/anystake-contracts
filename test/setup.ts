@@ -110,7 +110,7 @@ const setupUniswap = async (accounts: Accounts) => {
 
   // buy USDC and CORE test tokens
   console.log("Buying Test Tokens...");
-  await buyToken(token, ethers.utils.parseEther("10"), alpha.address);
+  await buyToken(token, ethers.utils.parseEther("20"), alpha.address);
   await buyToken(points, ethers.utils.parseEther("10"), alpha.address);
   await buyToken(usdc, ethers.utils.parseEther("10"), alpha.address);
   await buyToken(wbtc, ethers.utils.parseEther("10"), alpha.address);
@@ -137,13 +137,14 @@ const setupUniswap = async (accounts: Accounts) => {
 
 const setupClaiming = async (accounts: Accounts) => {
   const { alpha, mastermind } = accounts;
-  const { tokenLp, usdc } = await getNamedAccounts();
+  const { token, tokenLp, usdc } = await getNamedAccounts();
   const { AnyStake, Regulator } = alpha;
   const { Token, Vault } = mastermind;
 
   const tokens = [
-    { symbol: "DFT/ETH", address: tokenLp, pid: 0 },
-    { symbol: "USDC", address: usdc, pid: 2 },
+    { symbol: "DFT", address: token, pid: 0 },
+    { symbol: "DFT/ETH", address: tokenLp, pid: 1 },
+    { symbol: "USDC", address: usdc, pid: 3 },
   ];
 
   for (let token of tokens) {
@@ -176,7 +177,7 @@ const setupClaiming = async (accounts: Accounts) => {
   console.log("Transferring Vault fee rewards...");
   await Token.transfer(
     Vault.address,
-    ethers.utils.parseEther("1000")
+    ethers.utils.parseEther("100")
   ).then((tx) => tx.wait());
   console.log("Transferred Fee rewards.");
 
@@ -193,19 +194,12 @@ const setupClaiming = async (accounts: Accounts) => {
 
 const setupPegged = async (accounts: Accounts, abovePeg: boolean) => {
   const { mastermind } = accounts;
-  const { Token } = mastermind;
+  const { Token, Regulator } = mastermind;
+  const { uniswap } = await getNamedAccounts();
 
   if (abovePeg) {
-    await sellToken(
-      Token.address,
-      ethers.utils.parseEther("50000"),
-      mastermind.address
-    );
+    await Regulator.setPriceMultiplier(10000000).then((tx) => tx.wait());
   } else {
-    await buyToken(
-      Token.address,
-      ethers.utils.parseEther("100"),
-      mastermind.address
-    );
+    await Regulator.setPriceMultiplier(1).then((tx) => tx.wait());
   }
 };

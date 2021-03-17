@@ -184,6 +184,7 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
      
         uint256 tokenAmount = IERC20(tokenOut).balanceOf(address(this)); // snapshot
         
+        IERC20(tokenIn).safeApprove(router, 0);
         IERC20(tokenIn).safeApprove(router, amount);
         IUniswapV2Router02(router).swapExactTokensForTokensSupportingFeeOnTransferTokens(
             amount, 

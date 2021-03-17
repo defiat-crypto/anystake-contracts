@@ -24,6 +24,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
     event MigratorUpdated(address indexed user, address migrator);
     event VaultUpdated(address indexed user, address vault);
     event PoolAllocPointsUpdated(address indexed user, uint256 indexed pid, uint256 allocPoints);
+    event PoolVipAmountUpdated(address indexed user, uint256 indexed pid, uint256 vipAmount);
     event PoolChargeFeeUpdated(address indexed user, uint256 indexed pid, bool chargeFee);
     event PointStipendUpdated(address indexed user, uint256 stipend);
 
@@ -43,6 +44,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         uint256 allocPoint; // How many allocation points assigned to this pool. DFTs to distribute per block. (ETH = 2.3M blocks per year)
         uint256 rewardsPerShare; // Accumulated DFTs per share, times 1e18. See below.
         uint256 lastRewardBlock; // last pool update
+        uint256 vipAmount;
         bool chargeFee;
     }
 
@@ -105,15 +107,6 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         }
 
         pendingRewards = pendingRewards.add(amount);
-    }
-
-    // Pool - Mass Update all pools, start new epoch if available
-    function massUpdatePools() public override {
-        // calculate updated rewards
-        uint256 length = poolInfo.length;
-        for (uint256 pid = 0; pid < length; pid++) {
-            _updatePool(pid);
-        }
     }
 
     // Pool - Updates the reward variables of the given pool
@@ -188,6 +181,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         
         require(_amount > 0, "Deposit: Cannot deposit zero tokens");
         require(pool.allocPoint > 0, "Deposit: Pool is not active");
+        require(pool.vipAmount <= userInfo[0][_user].amount, "Deposit: VIP Only");
 
         if (pool.totalStaked == 0) {
             totalEligiblePools = totalEligiblePools.add(1);
@@ -347,15 +341,11 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         address[] calldata tokens,
         address[] calldata lpTokens,
         uint256[] calldata allocPoints,
-        bool[] calldata chargeFees,
-        bool withUpdate
+        uint256[] calldata vipAmounts,
+        bool[] calldata chargeFees
     ) external onlyGovernor {
-        if (withUpdate) {
-            massUpdatePools();
-        }
-
         for (uint i = 0; i < tokens.length; i++) {
-            _addPool(tokens[i], lpTokens[i], allocPoints[i], chargeFees[i]);
+            _addPool(tokens[i], lpTokens[i], allocPoints[i], vipAmounts[i], chargeFees[i]);
         }
     }
 
@@ -364,14 +354,10 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         address token, 
         address lpToken, 
         uint256 allocPoint,
-        bool chargeFee,
-        bool withUpdate
+        uint256 vipAmount,
+        bool chargeFee
     ) external onlyGovernor {
-        if (withUpdate) {
-            massUpdatePools();
-        }
-        
-        _addPool(token, lpToken, allocPoint, chargeFee);
+        _addPool(token, lpToken, allocPoint, vipAmount, chargeFee);
     }
 
     // Governance - Add Token Pool Internal
@@ -379,6 +365,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         address stakedToken,
         address lpToken,
         uint256 allocPoint,
+        uint256 vipAmount,
         bool chargeFee
     ) internal {
         require(pids[stakedToken] == 0, "AddPool: Token pool already added");
@@ -396,6 +383,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
                 lastRewardBlock: block.number,
                 totalStaked: 0,
                 rewardsPerShare: 0,
+                vipAmount: vipAmount,
                 chargeFee: chargeFee
             })
         );
@@ -419,9 +407,8 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         emit VaultUpdated(msg.sender, vault);
     }
 
-    // Governance - Set Pool Allocation Points, must update to maintain reward consistency
+    // Governance - Set Pool Allocation Points
     function setPoolAllocPoints(uint256 _pid, uint256 _allocPoint) external onlyGovernor {
-        _updatePool(_pid);
         require(poolInfo[_pid].allocPoint != _allocPoint, "SetAllocPoints: No points change");
 
         if (_allocPoint == 0) {
@@ -433,9 +420,16 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         emit PoolAllocPointsUpdated(msg.sender, _pid, _allocPoint);
     }
 
-    // Governance - Set Pool Allocation Points, must update to maintain reward consistency
+    // Governance - Set Pool Charge Fee
+    function setPoolVipAmount(uint256 _pid, uint256 _vipAmount) external onlyGovernor {
+        require(poolInfo[_pid].vipAmount != _vipAmount, "SetVipAmount: No amount change");
+
+        poolInfo[_pid].vipAmount = _vipAmount;
+        emit PoolVipAmountUpdated(msg.sender, _pid, _vipAmount);
+    }
+
+    // Governance - Set Pool Charge Fee
     function setPoolChargeFee(uint256 _pid, bool _chargeFee) external onlyGovernor {
-        _updatePool(_pid);
         require(poolInfo[_pid].chargeFee != _chargeFee, "SetChargeFee: No fee change");
 
         poolInfo[_pid].chargeFee = _chargeFee;

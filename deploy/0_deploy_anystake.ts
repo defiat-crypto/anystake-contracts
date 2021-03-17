@@ -72,11 +72,11 @@ const func: DeployFunction = async ({
   if (!network.live) {
     await anystake
       .addPoolBatch(
-        [tokenLp, pointsLp, usdc, wbtc],
-        [zero, zero, usdcLp, wbtcLp],
-        [500, 500, 100, 100],
-        [false, false, true, true],
-        false
+        [token, tokenLp, pointsLp, usdc, wbtc],
+        [tokenLp, zero, zero, usdcLp, wbtcLp],
+        [100, 500, 500, 100, 100],
+        [0, 0, 0, 0, 0],
+        [false, false, false, true, true]
       )
       .then((tx) => tx.wait());
     console.log("batch");
@@ -137,11 +137,11 @@ const func: DeployFunction = async ({
     if (result.newlyDeployed) {
       await anystake
         .addPoolBatch(
-          [tokenLp, pointsLp, varToken, feeToken],
-          [zero, zero, varTokenLp, feeTokenLp],
-          [500, 500, 100, 100],
-          [false, false, true, true],
-          false
+          [token, tokenLp, pointsLp, varToken, feeToken],
+          [tokenLp, zero, zero, varTokenLp, feeTokenLp],
+          [100, 500, 500, 100, 100],
+          [0, 0, 0, 0, 0],
+          [false, false, false, true, true]
         )
         .then((tx) => tx.wait());
     }
