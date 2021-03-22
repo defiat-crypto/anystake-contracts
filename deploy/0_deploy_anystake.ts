@@ -16,7 +16,6 @@ import {
   getPointsAt,
   getRouter,
 } from "../utils";
-import { BigNumber } from "ethers";
 
 const func: DeployFunction = async ({
   getNamedAccounts,
@@ -140,7 +139,7 @@ const func: DeployFunction = async ({
           [token, tokenLp, pointsLp, varToken, feeToken],
           [tokenLp, zero, zero, varTokenLp, feeTokenLp],
           [100, 500, 500, 100, 100],
-          [0, 0, 0, 10e18, 0],
+          [0, 0, 0, ethers.utils.parseEther('10'), 0],
           [0, 0, 0, 50, 50]
         )
         .then((tx) => tx.wait());
