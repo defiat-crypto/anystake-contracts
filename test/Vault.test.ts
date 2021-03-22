@@ -47,28 +47,20 @@ describe("AnyStakeVault", () => {
     const { mastermind } = await setupClaimTest();
     const { AnyStake, Regulator, Token, Vault } = mastermind;
 
-    const balanceBefore = await Token.balanceOf(Vault.address);
-
     await AnyStake.updatePool(0).then((tx) => tx.wait());
 
-    const balanceAfter = await Token.balanceOf(Vault.address);
-    const totalRewards = balanceBefore.sub(balanceAfter);
-    const poolInfo = await AnyStake.poolInfo(0);
-
-    // rewards distro'd per pool on update, so must take balance in this test
-    const anystakeRewards = (await Token.balanceOf(AnyStake.address)).sub(
-      poolInfo.totalStaked
-    );
-    const regulatorRewards = await Token.balanceOf(Regulator.address);
+    const balance = await Token.balanceOf(Vault.address);
+    const bondedRewards = await Vault.bondedRewards();
+    const pendingRewards = await Vault.pendingRewards();
     const regulatorBuyback = await Regulator.buybackBalance();
+    const regulatorRewards = pendingRewards.mul(3).div(10);
 
-    console.log("total", totalRewards.toString());
-    console.log("t2", anystakeRewards.add(regulatorRewards).toString());
-    console.log("r", regulatorRewards.toString());
+    console.log("bal", balance.toString());
+    console.log("pending", pendingRewards.toString());
+    console.log("bond", bondedRewards.toString());
     console.log("bb", regulatorBuyback.toString());
 
-    expect(totalRewards.eq(anystakeRewards.add(regulatorRewards))).true;
-    expect(totalRewards.mul(7).div(10).eq(anystakeRewards)).true;
+    expect(balance.eq(pendingRewards.add(bondedRewards))).true;
     expect(regulatorRewards.mul(3).div(10).eq(regulatorBuyback)).true;
   });
 
@@ -76,23 +68,20 @@ describe("AnyStakeVault", () => {
     const { mastermind } = await setupClaimTest();
     const { AnyStake, Regulator, Token, Vault } = mastermind;
 
-    const balanceBefore = await Token.balanceOf(Vault.address);
-
     await Regulator.updatePool().then((tx) => tx.wait());
 
-    // rewards distro'd per pool on update, so must take balance in this test
-    const balanceAfter = await Token.balanceOf(Vault.address);
-    const totalRewards = balanceBefore.sub(balanceAfter);
-    const poolInfo = await AnyStake.poolInfo(0);
-
-    const anystakeRewards = (await Token.balanceOf(AnyStake.address)).sub(
-      poolInfo.totalStaked
-    );
-    const regulatorRewards = await Token.balanceOf(Regulator.address);
+    const balance = await Token.balanceOf(Vault.address);
+    const bondedRewards = await Vault.bondedRewards();
+    const pendingRewards = await Vault.pendingRewards();
     const regulatorBuyback = await Regulator.buybackBalance();
+    const regulatorRewards = pendingRewards.mul(3).div(10);
 
-    expect(totalRewards.eq(anystakeRewards.add(regulatorRewards))).true;
-    expect(totalRewards.mul(7).div(10).eq(anystakeRewards)).true;
+    console.log("bal", balance.toString());
+    console.log("pending", pendingRewards.toString());
+    console.log("bond", bondedRewards.toString());
+    console.log("bb", regulatorBuyback.toString());
+
+    expect(balance.eq(pendingRewards.add(bondedRewards))).true;
     expect(regulatorRewards.mul(3).div(10).eq(regulatorBuyback)).true;
   });
 });

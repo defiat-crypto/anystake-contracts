@@ -8,7 +8,6 @@ import "./interfaces/IAnyStakeRegulator.sol";
 import "./interfaces/IAnyStakeVault.sol";
 import "./utils/AnyStakeUtils.sol";
 
-//series of pool weighted by token price (using price oracles on chain)
 contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
     using SafeMath for uint256;
 
@@ -93,7 +92,6 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         } else {
             // Below Peg: sell DFT, buy DFTP, burn all proceeds (deflationary)
 
-            IERC20(DeFiatToken).transfer(vault, buybackBalance);
             IAnyStakeVault(vault).buyPointsWithTokens(DeFiatToken, buybackBalance);
             IDeFiatPoints(DeFiatPoints).burn(amount);
             IDeFiatPoints(DeFiatPoints).overrideLoyaltyPoints(vault, 0);
@@ -130,8 +128,8 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
             return;
         }
 
-        // distribute rewards, calls addReward()
-        IAnyStakeVault(vault).distributeRewards();
+        // calculate rewards, calls addReward()
+        IAnyStakeVault(vault).calculateRewards();
 
         // update rewardsPerShare            
         rewardsPerShare = rewardsPerShare.add(pendingRewards.mul(1e18).div(totalShares));
@@ -148,8 +146,8 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
     function _claim(address _user) internal {
         // get pending rewards
         UserInfo storage user = userInfo[_user];
-        uint256 pending = pending(_user);
-        if (pending == 0) {
+        uint256 rewards = pending(_user);
+        if (rewards == 0) {
             return;
         }
 
@@ -158,8 +156,8 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         user.lastRewardBlock = block.number;
         
         // transfer
-        safeTokenTransfer(_user, DeFiatToken, pending);
-        emit Claim(_user, pending);
+        IAnyStakeVault(vault).distributeRewards(_user, rewards);
+        emit Claim(_user, rewards);
     }
 
     // Pool - Deposit DeFiat Points (DFTP) to earn DFT and stablize token prices

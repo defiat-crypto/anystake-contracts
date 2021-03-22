@@ -8,7 +8,6 @@ import "./interfaces/IAnyStakeMigrator.sol";
 import "./interfaces/IAnyStakeVault.sol";
 import "./utils/AnyStakeUtils.sol";
 
-//series of pool weighted by token price (using price oracles on chain)
 contract AnyStake is IAnyStake, AnyStakeUtils {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
@@ -125,8 +124,8 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
             lastRewardBlock = block.number;
         }
 
-        // pull rewards, returns if already done this block
-        IAnyStakeVault(vault).distributeRewards();        
+        // calculate rewards, returns if already done this block
+        IAnyStakeVault(vault).calculateRewards();        
 
         // Calculate pool's share of pending rewards, using blocks since last reward and alloc points
         uint256 poolBlockDelta = block.number.sub(pool.lastRewardBlock);
@@ -165,7 +164,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         user.lastRewardBlock = block.number;
 
         // transfer DFT rewards
-        safeTokenTransfer(_user, DeFiatToken, rewards);
+        IAnyStakeVault(vault).distributeRewards(_user, rewards);
         emit Claim(_user, _pid, rewards);
     }
 

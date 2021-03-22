@@ -4,18 +4,20 @@ pragma solidity 0.6.6;
 
 import "./lib/@uniswap/interfaces/IUniswapV2Pair.sol";
 import "./interfaces/IAnyStake.sol";
+import "./interfaces/IVaultMigrator.sol";
 import "./interfaces/IAnyStakeRegulator.sol";
 import "./interfaces/IAnyStakeVault.sol";
 import "./utils/AnyStakeUtils.sol";
 
-// Vault distributes tokens to AnyStake, get token prices (oracle) and performs buybacks operations.
 contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
     event AnyStakeUpdated(address indexed user, address anystake);
     event RegulatorUpdated(address indexed user, address regulator);
+    event MigratorUpdated(address indexed user, address migrator);
     event DistributionRateUpdated(address indexed user, uint256 distributionRate);
+    event Migrate(address indexed user, address migrator);
     event DeFiatBuyback(address indexed token, uint256 tokenAmount, uint256 buybackAmount);
     event PointsBuyback(address indexed token, uint256 tokenAmount, uint256 buybackAmount);
     event RewardsDistributed(address indexed user, uint256 anystakeAmount, uint256 regulatorAmount);
@@ -23,6 +25,7 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
 
     address public anystake;
     address public regulator;
+    address public migrator;
 
     uint256 public bondedRewards; // DFT bonded (block-based) rewards
     uint256 public bondedRewardsPerBlock; // Amt of bonded DFT paid out each block
@@ -31,6 +34,7 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
     uint256 public lastDistributionBlock; // last block that rewards were distributed
     uint256 public totalBuybackAmount; // total DFT bought back
     uint256 public totalRewardsDistributed; // total rewards distributed from Vault
+    uint256 public pendingRewards; // total rewards pending claim
 
     modifier onlyAuthorized() {
         require(
@@ -57,7 +61,7 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
     }
 
     // Rewards - Distribute accumulated rewards during pool update
-    function distributeRewards() external override onlyAuthorized {
+    function calculateRewards() external override onlyAuthorized {
         if (block.number <= lastDistributionBlock) {
             return;
         }
@@ -65,10 +69,14 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
         uint256 anystakeAmount;
         uint256 regulatorAmount;
 
-        // find the transfer fee amount, fees accumulated = balance - bondedRewards
-        if (IERC20(DeFiatToken).balanceOf(address(this)) > bondedRewards) {
-            uint256 feeAmount = IERC20(DeFiatToken).balanceOf(address(this)).sub(bondedRewards);
-            
+        // find the transfer fee amount
+        // fees accumulated = balance - pendingRewards - bondedRewards
+        uint256 feeAmount = IERC20(DeFiatToken).balanceOf(address(this))
+            .sub(pendingRewards)
+            .sub(bondedRewards);
+        
+        // calculate fees accumulated since last update
+        if (feeAmount > 0) {
             // find the amounts to distribute to each contract
             uint256 anystakeShare = feeAmount.mul(distributionRate).div(1000);
             anystakeAmount = anystakeAmount.add(anystakeShare);
@@ -104,18 +112,22 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
         }
 
         if (anystakeAmount > 0) {
-            IERC20(DeFiatToken).safeTransfer(anystake, anystakeAmount);
             IAnyStake(anystake).addReward(anystakeAmount);
         }
 
         if (regulatorAmount > 0) {
-            IERC20(DeFiatToken).safeTransfer(regulator, regulatorAmount);
             IAnyStakeRegulator(regulator).addReward(regulatorAmount);
         }
         
         lastDistributionBlock = block.number;
+        pendingRewards = pendingRewards.add(anystakeAmount).add(regulatorAmount);
         totalRewardsDistributed = totalRewardsDistributed.add(anystakeAmount).add(regulatorAmount);
         emit RewardsDistributed(msg.sender, anystakeAmount, regulatorAmount);
+    }
+
+    function distributeRewards(address recipient, uint256 amount) external override onlyAuthorized {
+        safeTokenTransfer(recipient, DeFiatToken, amount);
+        pendingRewards = pendingRewards.sub(amount);
     }
 
     // Uniswap - Get token price from Uniswap in ETH
@@ -200,6 +212,19 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
         return buybackAmount;
     }
 
+    function migrate() external onlyGovernor {
+        require(migrator != address(0), "Migrate: No migrator set");
+
+        uint256 balance = IERC20(DeFiatToken).balanceOf(address(this));
+        
+        // approve and migrate to new vault
+        // this function will need to maintain the pendingRewards, bondedRewards, lastDistributionBlock
+        // variables from this contract to ensure users can claim at all times
+        IERC20(DeFiatToken).safeApprove(migrator, balance);
+        IVaultMigrator(migrator).migrateTo();
+        emit Migrate(msg.sender, migrator);
+    }
+
     // Governance - Add Bonded Rewards, rewards paid out over fixed timeframe
     // Used for pre-AnyStake accumulated Treasury rewards and promotions
     function addBondedRewards(uint256 _amount, uint256 _blocks) external onlyGovernor {
@@ -223,6 +248,14 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
 
         distributionRate = _distributionRate;
         emit DistributionRateUpdated(msg.sender, distributionRate);
+    }
+
+    // Governance - Set Migrator
+    function setMigrator(address _migrator) external onlyGovernor {
+        require(_migrator != address(0), "SetMigrator: No migrator change");
+
+        migrator = _migrator;
+        emit MigratorUpdated(msg.sender, _migrator);
     }
 
     // Governance - Set AnyStake Address
