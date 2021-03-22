@@ -76,7 +76,7 @@ const func: DeployFunction = async ({
         [tokenLp, zero, zero, usdcLp, wbtcLp],
         [100, 500, 500, 100, 100],
         [0, 0, 0, 0, 0],
-        [false, false, false, true, true]
+        [0, 0, 0, 50, 50]
       )
       .then((tx) => tx.wait());
     console.log("batch");
@@ -140,8 +140,8 @@ const func: DeployFunction = async ({
           [token, tokenLp, pointsLp, varToken, feeToken],
           [tokenLp, zero, zero, varTokenLp, feeTokenLp],
           [100, 500, 500, 100, 100],
-          [0, 0, 0, 0, 0],
-          [false, false, false, true, true]
+          [0, 0, 0, 10e18, 0],
+          [0, 0, 0, 50, 50]
         )
         .then((tx) => tx.wait());
     }

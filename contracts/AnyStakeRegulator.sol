@@ -225,7 +225,7 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         require(balance > 0, "Migrate: No tokens to migrate");
 
         IERC20(DeFiatPoints).approve(migrator, balance);
-        IAnyStakeMigrator(migrator).migrate(_user, DeFiatPoints, balance);
+        IAnyStakeMigrator(migrator).migrateTo(_user, DeFiatPoints, balance);
         emit Migrate(_user, balance);
     }
 

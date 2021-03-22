@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.6.0;
+pragma solidity 0.6.6;
 
 import "./lib/@defiat-crypto/interfaces/IDeFiatPoints.sol";
 import "./interfaces/IAnyStake.sol";
@@ -25,7 +25,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
     event VaultUpdated(address indexed user, address vault);
     event PoolAllocPointsUpdated(address indexed user, uint256 indexed pid, uint256 allocPoints);
     event PoolVipAmountUpdated(address indexed user, uint256 indexed pid, uint256 vipAmount);
-    event PoolChargeFeeUpdated(address indexed user, uint256 indexed pid, bool chargeFee);
+    event PoolStakingFeeUpdated(address indexed user, uint256 indexed pid, uint256 stakingFee);
     event PointStipendUpdated(address indexed user, uint256 stipend);
 
     // STRUCTS
@@ -44,8 +44,8 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         uint256 allocPoint; // How many allocation points assigned to this pool. DFTs to distribute per block. (ETH = 2.3M blocks per year)
         uint256 rewardsPerShare; // Accumulated DFTs per share, times 1e18. See below.
         uint256 lastRewardBlock; // last pool update
-        uint256 vipAmount;
-        bool chargeFee;
+        uint256 vipAmount; // amount of DFT tokens that must be staked to access the pool
+        uint256 stakingFee; // the % withdrawal fee charged. base 1000, 50 = 5%
     }
 
     address public migrator; // contract where we may migrate too
@@ -56,7 +56,6 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
     mapping(uint256 => mapping(address => UserInfo)) public userInfo; // mapping of (pid => (userAddress => userInfo))
     mapping(address => uint256) public pids; // quick mapping for pool ids (staked_token => pid)
 
-    uint256 public stakingFee; // fee to stake ERC-20 tokens
     uint256 public lastRewardBlock; // last block the pool was updated
     uint256 public pendingRewards; // pending DFT rewards awaiting anyone to be distro'd to pools
     uint256 public pointStipend; // amount of DFTP awarded per deposit
@@ -87,7 +86,6 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         AnyStakeUtils(_router, _gov, _points, _token)
     {
         pointStipend = 1e18;
-        stakingFee = 50; // 5%, base 1000
     }
     
     // Initialize pools/rewards after the Vault has been setup
@@ -138,9 +136,11 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
             .mul(pool.allocPoint)
             .div(totalAllocPoint);
         
-        // double-check math since tokenSupply is not necessarily 1e18
+        // update reward variables
         totalBlockDelta = poolBlockDelta > totalBlockDelta ? 0 : totalBlockDelta.sub(poolBlockDelta);
-        pendingRewards = pendingRewards > poolRewards ? 0 : pendingRewards.sub(poolRewards);
+        pendingRewards = poolRewards > pendingRewards ? 0 : pendingRewards.sub(poolRewards);
+        
+        // update pool variables
         pool.rewardsPerShare = pool.rewardsPerShare.add(poolRewards.mul(1e18).div(pool.totalStaked));
         pool.lastRewardBlock = block.number;
     }
@@ -183,10 +183,12 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         require(pool.allocPoint > 0, "Deposit: Pool is not active");
         require(pool.vipAmount <= userInfo[0][_user].amount, "Deposit: VIP Only");
 
+        // add pool to reward calculation if previously no tokens staked
         if (pool.totalStaked == 0) {
             totalEligiblePools = totalEligiblePools.add(1);
             pool.lastRewardBlock = block.number; // reset reward block
 
+            // begin computing rewards from this block if the first
             if (lastRewardBlock == 0) {
                 lastRewardBlock = block.number;
             }
@@ -249,7 +251,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         // PID = 2 : weth (price = 1e18)
         // PID > 2 : all other tokens
         // No fee on DFT-ETH, DFTP-ETH pools
-        uint256 stakingFeeAmount = pool.chargeFee ? _amount.mul(stakingFee).div(1000) : 0;
+        uint256 stakingFeeAmount = _amount.mul(pool.stakingFee).div(1000);
         uint256 remainingUserAmount = _amount.sub(stakingFeeAmount);
 
         if(stakingFeeAmount > 0){
@@ -283,7 +285,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         _claim(_pid, _user);
 
         IERC20(pool.stakedToken).safeApprove(migrator, balance);
-        IAnyStakeMigrator(migrator).migrate(_user, pool.stakedToken, balance);
+        IAnyStakeMigrator(migrator).migrateTo(_user, pool.stakedToken, balance);
         emit Migrate(_user, _pid, balance);
     }
 
@@ -294,7 +296,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
 
         require(user.amount > 0, "EmergencyWithdraw: user amount insufficient");
 
-        uint256 stakingFeeAmount = pool.chargeFee ? user.amount.mul(stakingFee).div(1000) : 0;
+        uint256 stakingFeeAmount = user.amount.mul(pool.stakingFee).div(1000);
         uint256 remainingUserAmount = user.amount.sub(stakingFeeAmount);
         pool.totalStaked = pool.totalStaked.sub(user.amount);
         user.amount = 0;
@@ -342,22 +344,22 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         address[] calldata lpTokens,
         uint256[] calldata allocPoints,
         uint256[] calldata vipAmounts,
-        bool[] calldata chargeFees
+        uint256[] calldata stakingFees
     ) external onlyGovernor {
         for (uint i = 0; i < tokens.length; i++) {
-            _addPool(tokens[i], lpTokens[i], allocPoints[i], vipAmounts[i], chargeFees[i]);
+            _addPool(tokens[i], lpTokens[i], allocPoints[i], vipAmounts[i], stakingFees[i]);
         }
     }
 
     // Governance - Add Single Token Pool
     function addPool(
-        address token, 
+        address token,
         address lpToken, 
         uint256 allocPoint,
         uint256 vipAmount,
-        bool chargeFee
+        uint256 stakingFee
     ) external onlyGovernor {
-        _addPool(token, lpToken, allocPoint, vipAmount, chargeFee);
+        _addPool(token, lpToken, allocPoint, vipAmount, stakingFee);
     }
 
     // Governance - Add Token Pool Internal
@@ -366,7 +368,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
         address lpToken,
         uint256 allocPoint,
         uint256 vipAmount,
-        bool chargeFee
+        uint256 stakingFee
     ) internal {
         require(pids[stakedToken] == 0, "AddPool: Token pool already added");
 
@@ -384,7 +386,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
                 totalStaked: 0,
                 rewardsPerShare: 0,
                 vipAmount: vipAmount,
-                chargeFee: chargeFee
+                stakingFee: stakingFee
             })
         );
 
@@ -429,11 +431,11 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
     }
 
     // Governance - Set Pool Charge Fee
-    function setPoolChargeFee(uint256 _pid, bool _chargeFee) external onlyGovernor {
-        require(poolInfo[_pid].chargeFee != _chargeFee, "SetChargeFee: No fee change");
+    function setPoolChargeFee(uint256 _pid, uint256 _stakingFee) external onlyGovernor {
+        require(poolInfo[_pid].stakingFee != _stakingFee, "SetStakingFee: No fee change");
 
-        poolInfo[_pid].chargeFee = _chargeFee;
-        emit PoolChargeFeeUpdated(msg.sender, _pid, _chargeFee);
+        poolInfo[_pid].stakingFee = _stakingFee;
+        emit PoolStakingFeeUpdated(msg.sender, _pid, _stakingFee);
     }
 
     // Governance - Set Pool Allocation Points
