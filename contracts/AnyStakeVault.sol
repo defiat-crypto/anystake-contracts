@@ -173,6 +173,10 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
     function buyPointsWithTokens(address token, uint256 amount) external override onlyAuthorized {
         uint256 buybackAmount = buyTokenWithTokens(DeFiatPoints, token, amount);
         
+        if (msg.sender == regulator) {
+            pendingRewards = pendingRewards.sub(amount);
+        }
+
         if (buybackAmount > 0) {
             emit PointsBuyback(token, amount, buybackAmount);
         }
