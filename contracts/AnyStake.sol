@@ -230,6 +230,7 @@ contract AnyStake is IAnyStake, AnyStakeUtils {
 
         require(_amount > 0, "Withdraw: amount must be greater than zero");
         require(user.amount >= _amount, "Withdraw: user amount insufficient");
+        require(pool.vipAmount <= userInfo[0][_user].amount, "Withdraw: VIP Only");
         
         // claim rewards
         _updatePool(_pid);
