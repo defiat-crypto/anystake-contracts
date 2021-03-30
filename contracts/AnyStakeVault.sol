@@ -32,7 +32,8 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
     uint256 public bondedRewardsBlocksRemaining; // Remaining bonding period
     uint256 public distributionRate; // % of rewards which are sent to AnyStake
     uint256 public lastDistributionBlock; // last block that rewards were distributed
-    uint256 public totalBuybackAmount; // total DFT bought back
+    uint256 public totalTokenBuybackAmount; // total DFT bought back
+    uint256 public totalPointsBuybackAmount; // total DFTPv2 bought back
     uint256 public totalRewardsDistributed; // total rewards distributed from Vault
     uint256 public pendingRewards; // total rewards pending claim
 
@@ -165,6 +166,7 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
         uint256 buybackAmount = buyTokenWithTokens(DeFiatToken, token, amount);
 
         if (buybackAmount > 0) {
+            totalTokenBuybackAmount = totalTokenBuybackAmount.add(buybackAmount);
             emit DeFiatBuyback(token, amount, buybackAmount);
         }
     }
@@ -178,6 +180,7 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
         }
 
         if (buybackAmount > 0) {
+            totalPointsBuybackAmount = totalPointsBuybackAmount.add(buybackAmount);
             emit PointsBuyback(token, amount, buybackAmount);
         }
     }
@@ -211,7 +214,6 @@ contract AnyStakeVault is IAnyStakeVault, AnyStakeUtils {
         );
 
         uint256 buybackAmount = IERC20(tokenOut).balanceOf(address(this)).sub(tokenAmount);
-        totalBuybackAmount = totalBuybackAmount.add(buybackAmount);
 
         return buybackAmount;
     }
