@@ -68,7 +68,7 @@ contract AnyStakeRegulator is IAnyStakeRegulator, AnyStakeUtils {
         public 
         AnyStakeUtils(_router, _gov, _points, _token)
     {
-        priceMultiplier = 100; // 100 / 1000 = 0.1
+        priceMultiplier = 10000; // 10000 / 1000 = 10:1
         stakingFee = 100; // 10%
         buybackRate = 300; // 30%
     }

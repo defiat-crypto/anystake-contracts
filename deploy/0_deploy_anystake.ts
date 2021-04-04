@@ -16,6 +16,7 @@ import {
   getPointsAt,
   getRouter,
 } from "../utils";
+import { getAnyStakeDeploymentPools } from "../utils/pools";
 
 const func: DeployFunction = async ({
   getNamedAccounts,
@@ -68,15 +69,16 @@ const func: DeployFunction = async ({
     console.log("discount");
   }
 
-  if (!network.live) {
+  if (!network.live || network.name == "mainnet") {
+    const pools = await getAnyStakeDeploymentPools();
+    const tokens = pools.map((pool) => pool.token);
+    const lpTokens = pools.map((pool) => pool.lpToken);
+    const allocPoints = pools.map((pool) => pool.allocPoint);
+    const vipAmount = pools.map((pool) => pool.vipAmount);
+    const feeAmount = pools.map((pool) => pool.feeAmount);
+
     await anystake
-      .addPoolBatch(
-        [token, tokenLp, pointsLp, usdc, wbtc],
-        [tokenLp, zero, zero, usdcLp, wbtcLp],
-        [100, 500, 500, 100, 100],
-        [0, 0, 0, 0, 0],
-        [0, 0, 0, 50, 50]
-      )
+      .addPoolBatch(tokens, lpTokens, allocPoints, vipAmount, feeAmount)
       .then((tx) => tx.wait());
     console.log("batch");
   } else if (network.name == "rinkeby") {
@@ -139,7 +141,7 @@ const func: DeployFunction = async ({
           [token, tokenLp, pointsLp, varToken, feeToken],
           [tokenLp, zero, zero, varTokenLp, feeTokenLp],
           [100, 500, 500, 100, 100],
-          [0, 0, 0, ethers.utils.parseEther('10'), 0],
+          [0, 0, 0, ethers.utils.parseEther("10"), 0],
           [0, 0, 0, 50, 50]
         )
         .then((tx) => tx.wait());

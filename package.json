@@ -36,7 +36,7 @@
     "rinkeby:run": "hardhat --network rinkeby run",
     "rinkeby:verify": "hardhat --network rinkeby etherscan-verify",
     "mainnet:deploy": "hardhat --network mainnet deploy",
-    "mainnet:verify": "hardhat --network rinkeby etherscan-verify"
+    "mainnet:verify": "hardhat --network mainnet etherscan-verify"
   },
   "devDependencies": {
     "@defiat-crypto/core-contracts": "2.1.0",

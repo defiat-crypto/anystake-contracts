@@ -110,10 +110,10 @@ const setupUniswap = async (accounts: Accounts) => {
 
   // buy USDC and CORE test tokens
   console.log("Buying Test Tokens...");
-  await buyToken(token, ethers.utils.parseEther("20"), alpha.address);
+  await buyToken(token, ethers.utils.parseEther("10"), alpha.address);
   await buyToken(points, ethers.utils.parseEther("10"), alpha.address);
-  await buyToken(usdc, ethers.utils.parseEther("10"), alpha.address);
-  await buyToken(wbtc, ethers.utils.parseEther("10"), alpha.address);
+  await buyToken(usdc, ethers.utils.parseEther("5"), alpha.address);
+  await buyToken(wbtc, ethers.utils.parseEther("5"), alpha.address);
   console.log("Bought Test Tokens.");
 
   const pointsBalance = await Points.balanceOf(alpha.address);
@@ -123,13 +123,13 @@ const setupUniswap = async (accounts: Accounts) => {
   await addLiquidity(
     points,
     pointsBalance,
-    ethers.utils.parseEther("10"),
+    ethers.utils.parseEther("5"),
     alpha.address
   );
   await addLiquidity(
     token,
     tokenBalance,
-    ethers.utils.parseEther("10"),
+    ethers.utils.parseEther("5"),
     alpha.address
   );
   console.log("Added LP");
@@ -185,10 +185,9 @@ const setupClaiming = async (accounts: Accounts) => {
   await Token.approve(Vault.address, ethers.constants.MaxUint256).then((tx) =>
     tx.wait()
   );
-  await Vault.addBondedRewards(
-    ethers.utils.parseEther("100"),
-    1000
-  ).then((tx) => tx.wait());
+  await Vault.addBondedRewards(ethers.utils.parseEther("1"), 1000).then((tx) =>
+    tx.wait()
+  );
   console.log("Bonded rewards.");
 };
 

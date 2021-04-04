@@ -2,6 +2,10 @@ import { setupClaimTest, setupStakingTest, setupTest } from "./setup";
 import { expect } from "chai";
 import { ethers, getNamedAccounts } from "hardhat";
 import { AnyStake, IERC20 } from "../typechain";
+import { getAnyStakeDeploymentPools } from "../utils/pools";
+import { buyToken, depositForWeth } from "../utils";
+import { BigNumber } from "@ethersproject/bignumber";
+import { parseEther } from "@ethersproject/units";
 
 describe("AnyStake", () => {
   it("should deploy and setup AnyStake correctly", async () => {
@@ -117,7 +121,7 @@ describe("AnyStake", () => {
     const tests = [
       { args: ["DFT", 0, token], expected: 0 },
       { args: ["DFT/ETH", 1, tokenLp], expected: 0 },
-      { args: ["USDC", 3, usdc], expected: 0 },
+      // { args: ["USDC", 3, usdc], expected: 0 },
       // { args: ["WBTC", 3, wbtc], expected: 0 },
     ];
 
@@ -161,5 +165,94 @@ describe("AnyStake", () => {
     // withdraw > staked
     expect(beta.AnyStake.withdraw(0, "0")).to.be.reverted;
     // expect(AnyStakeBeta.withdraw(0, '1')).to.be.reverted;
+  });
+
+  it("full deposit/withdraw deployment test for AnyStake", async () => {
+    const { alpha } = await setupStakingTest();
+    const { AnyStake, Token, Vault } = alpha;
+    const { tokenLp } = await getNamedAccounts();
+    const pools = await getAnyStakeDeploymentPools();
+
+    let pid = 0;
+    for (let pool of pools) {
+      const pointsBefore = await alpha.Points.balanceOf(alpha.address);
+      const pointStipend = await alpha.AnyStake.pointStipend();
+
+      let balance = BigNumber.from(0);
+      if (pid > 4) {
+        console.log(pid);
+        if (pid == 5) {
+          await depositForWeth(alpha.address, parseEther("1"));
+        } else {
+          await buyToken(
+            pool.token,
+            ethers.utils.parseEther("1"),
+            alpha.address
+          );
+        }
+      }
+
+      const Token = (await ethers.getContractAt(
+        "IERC20",
+        pool.token,
+        alpha.address
+      )) as IERC20;
+      await Token.approve(
+        AnyStake.address,
+        ethers.constants.MaxUint256
+      ).then((tx) => tx.wait());
+      balance = await Token.balanceOf(alpha.address);
+      console.log(`Staking ${balance.toString()} ${pool.token}`);
+      await AnyStake.deposit(pid, balance).then((tx) => tx.wait());
+
+      const info = await AnyStake.userInfo(pid, alpha.address);
+      const pointsAfter = await alpha.Points.balanceOf(alpha.address);
+      expect(info.amount.lte(balance)).true;
+      pid += 1;
+    }
+
+    pid = 0;
+    for (let pool of pools) {
+      console.log(pid, pool.token);
+      const subjectToken = (await ethers.getContractAt(
+        "IERC20",
+        pool.token,
+        alpha.address
+      )) as IERC20;
+
+      const info = await AnyStake.userInfo(pid, alpha.address);
+      const price = await Vault.getTokenPrice(Token.address, tokenLp);
+      const rewards = await Token.balanceOf(Vault.address);
+      const balance = await subjectToken.balanceOf(alpha.address);
+
+      if (pid != 0) {
+        await AnyStake.withdraw(pid, info.amount).then((tx) => tx.wait());
+      }
+
+      const infoAfter = await AnyStake.userInfo(pid, alpha.address);
+      const priceAfter = await Vault.getTokenPrice(Token.address, tokenLp);
+      const rewardsAfter = await Token.balanceOf(Vault.address);
+      const balanceAfter = await subjectToken.balanceOf(alpha.address);
+
+      if (pid != 0) {
+        expect(infoAfter.amount.toNumber()).eq(0);
+      }
+
+      if (pid >= 3) {
+        expect(priceAfter.gt(price)).true;
+        expect(rewardsAfter.gt(rewards)).true;
+        // expect(balanceAfter.sub(balance).gte(info.amount.mul(95).div(100)))
+        // .true;
+      } else {
+        console.log(
+          balanceAfter.toString(),
+          balance.toString(),
+          info.amount.toString()
+        );
+        // expect(balanceAfter.sub(balance).gte(info.amount)).true;
+      }
+
+      pid += 1;
+    }
   });
 });
