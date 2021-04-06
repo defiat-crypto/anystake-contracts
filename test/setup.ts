@@ -1,4 +1,8 @@
-import { BigNumber, BigNumberish } from "ethers";
+import * as chai from "chai";
+import { waffleChai } from "@ethereum-waffle/chai";
+import { IERC20 } from "../typechain";
+chai.use(waffleChai);
+
 import { ethers, deployments, getNamedAccounts } from "hardhat";
 import {
   Accounts,
@@ -7,14 +11,11 @@ import {
   buyToken,
   depositForWeth,
   getAccount,
-  getRouter,
-  sellToken,
+  getERC20At,
 } from "../utils";
-
-import * as chai from "chai";
-import { waffleChai } from "@ethereum-waffle/chai";
-import { IERC20 } from "../typechain";
-chai.use(waffleChai);
+import { getAnyStakeDeploymentPools } from "../utils/pools";
+import { setupAnyStakeMigration } from "../utils/migrate";
+import { advanceNBlocks } from "../utils/time";
 
 export const setupTest = deployments.createFixture(async (hre, options) => {
   await deployments.fixture();
@@ -24,14 +25,7 @@ export const setupTest = deployments.createFixture(async (hre, options) => {
 
 export const setupDeployTest = deployments.createFixture(
   async (hre, options) => {
-    await deployments.fixture([
-      // "Gov",
-      // "Points",
-      // "Token",
-      // "Uniswap",
-      "AnyStake",
-      "Regulator",
-    ]);
+    await deployments.fixture(["AnyStake", "Regulator"]);
     const accounts = await setupAccounts();
     return accounts;
   }
@@ -41,7 +35,7 @@ export const setupStakingTest = deployments.createFixture(
   async (hre, options) => {
     await deployments.fixture();
     const accounts = await setupAccounts();
-    await setupUniswap(accounts);
+    await setupStaking(accounts);
     return accounts;
   }
 );
@@ -50,7 +44,7 @@ export const setupClaimTest = deployments.createFixture(
   async (hre, options) => {
     await deployments.fixture();
     const accounts = await setupAccounts();
-    await setupUniswap(accounts);
+    await setupStaking(accounts);
     await setupClaiming(accounts);
     return accounts;
   }
@@ -60,7 +54,7 @@ export const setupPeggedTest = deployments.createFixture(
   async (hre, options) => {
     await deployments.fixture();
     const accounts = await setupAccounts();
-    await setupUniswap(accounts);
+    await setupStaking(accounts);
     await setupClaiming(accounts);
     await setupPegged(accounts, (options as any).abovePeg as boolean);
     return accounts;
@@ -80,45 +74,38 @@ const setupAccounts = async () => {
   };
 };
 
-const setupUniswap = async (accounts: Accounts) => {
+const setupStaking = async (accounts: Accounts) => {
   const { alpha, mastermind } = accounts;
-  const {
-    usdc,
-    wbtc,
-    tokenLp,
-    pointsLp,
-    token,
-    points,
-  } = await getNamedAccounts();
+  const { token, points } = await getNamedAccounts();
   const { Points, Token } = mastermind;
-
-  const TokenLp = (await ethers.getContractAt(
-    "IERC20",
-    tokenLp,
-    mastermind.address
-  )) as IERC20;
-  const PointsLp = (await ethers.getContractAt(
-    "IERC20",
-    pointsLp,
-    mastermind.address
-  )) as IERC20;
 
   // convert ETH to WETH
   console.log("Depositing ETH for WETH...");
   await depositForWeth(alpha.address, ethers.utils.parseEther("10"));
   console.log("Deposited ETH for WETH");
 
-  // buy USDC and CORE test tokens
+  // buy DFT, DFTPv2, USDC and WBTC test tokens
   console.log("Buying Test Tokens...");
   await buyToken(token, ethers.utils.parseEther("10"), alpha.address);
   await buyToken(points, ethers.utils.parseEther("10"), alpha.address);
-  await buyToken(usdc, ethers.utils.parseEther("5"), alpha.address);
-  await buyToken(wbtc, ethers.utils.parseEther("5"), alpha.address);
+
+  let pid = 0;
+  const pools = await getAnyStakeDeploymentPools();
+  for (const pool of pools) {
+    if (pid == 5) {
+      await depositForWeth(alpha.address, ethers.utils.parseEther("1"));
+    } else if (pid > 2) {
+      await buyToken(pool.token, ethers.utils.parseEther("1"), alpha.address);
+    }
+    pid += 1;
+  }
+
   console.log("Bought Test Tokens.");
 
   const pointsBalance = await Points.balanceOf(alpha.address);
   const tokenBalance = await Token.balanceOf(alpha.address);
 
+  // Add DFT and DTFPv2 Liquidity to stake in AnyStake
   console.log("Adding DFT and DFTP Liquidity");
   await addLiquidity(
     points,
@@ -137,33 +124,24 @@ const setupUniswap = async (accounts: Accounts) => {
 
 const setupClaiming = async (accounts: Accounts) => {
   const { alpha, mastermind } = accounts;
-  const { token, tokenLp, usdc } = await getNamedAccounts();
   const { AnyStake, Regulator } = alpha;
   const { Token, Vault } = mastermind;
+  const pools = await getAnyStakeDeploymentPools();
 
-  const tokens = [
-    { symbol: "DFT", address: token, pid: 0 },
-    { symbol: "DFT/ETH", address: tokenLp, pid: 1 },
-    { symbol: "USDC", address: usdc, pid: 3 },
-  ];
+  let pid = 0;
+  for (let pool of pools) {
+    const Token = await getERC20At(pool.token, alpha.address);
+    await approveToken(pool.token, alpha.address, AnyStake.address);
+    const balance = await Token.balanceOf(alpha.address);
 
-  for (let token of tokens) {
-    console.log(`Staking ${token.symbol} tokens in AnyStake...`);
-    const TokenLp = (await ethers.getContractAt(
-      "IERC20",
-      token.address,
-      alpha.address
-    )) as IERC20;
-    const balance = await TokenLp.balanceOf(alpha.address);
-    await TokenLp.approve(
-      AnyStake.address,
-      ethers.constants.MaxUint256
-    ).then((tx) => tx.wait());
-    await AnyStake.deposit(token.pid, balance).then((tx) => tx.wait());
-    console.log(`Staked ${token.symbol} tokens in AnyStake.`);
+    console.log(pid, "Staking", balance.toString());
+    await AnyStake.deposit(pid, balance).then((tx) => tx.wait());
+
+    await advanceNBlocks(5);
+    pid += 1;
   }
 
-  console.log("Staking DFTP tokens in Regulator...");
+  console.log("Staking DFTP in Regulator...");
   await alpha.Points.approve(
     Regulator.address,
     ethers.constants.MaxUint256
@@ -185,16 +163,16 @@ const setupClaiming = async (accounts: Accounts) => {
   await Token.approve(Vault.address, ethers.constants.MaxUint256).then((tx) =>
     tx.wait()
   );
-  await Vault.addBondedRewards(ethers.utils.parseEther("1"), 1000).then((tx) =>
-    tx.wait()
-  );
+  await Vault.addBondedRewards(
+    ethers.utils.parseEther("1000"),
+    1000
+  ).then((tx) => tx.wait());
   console.log("Bonded rewards.");
 };
 
 const setupPegged = async (accounts: Accounts, abovePeg: boolean) => {
   const { mastermind } = accounts;
-  const { Token, Regulator } = mastermind;
-  const { uniswap } = await getNamedAccounts();
+  const { Regulator } = mastermind;
 
   if (abovePeg) {
     await Regulator.setPriceMultiplier(10000000).then((tx) => tx.wait());

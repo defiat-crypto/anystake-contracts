@@ -47,6 +47,15 @@ const config: HardhatUserConfig = {
     alpha: 1,
     beta: 2,
     user: 3,
+    anystake: {
+      1: "0x95EF77772BdAEF25B56ec5f210e02BdaAc40D144",
+    },
+    regulator: {
+      1: "0xbb10bC5a825F3F6b148bF83ED4b679c88ab27B54",
+    },
+    vault: {
+      1: "0xDcD7CA4a0feBBF5dcF91499b603c1C073916f9a3",
+    },
     zero: "0x0000000000000000000000000000000000000000",
     uniswap: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
     usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",

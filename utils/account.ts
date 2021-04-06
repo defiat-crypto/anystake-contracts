@@ -1,5 +1,11 @@
 import { ethers, getNamedAccounts } from "hardhat";
-import { AnyStake, AnyStakeRegulator, AnyStakeVault } from "../typechain";
+import {
+  AnyStake,
+  AnyStakeRegulator,
+  AnyStakeRegulatorV2,
+  AnyStakeV2,
+  AnyStakeVault,
+} from "../typechain";
 import {
   DeFiatGov,
   DeFiatPoints,
@@ -23,6 +29,8 @@ export interface Account {
   AnyStake: AnyStake;
   Regulator: AnyStakeRegulator;
   Vault: AnyStakeVault;
+  AnyStakeV2: AnyStakeV2;
+  RegulatorV2: AnyStakeRegulatorV2;
 }
 
 export const getAccount = async (account: string): Promise<Account> => {
@@ -33,6 +41,8 @@ export const getAccount = async (account: string): Promise<Account> => {
   const AnyStake = await getAnyStake(account);
   const Regulator = await getRegulator(account);
   const Vault = await getVault(account);
+  const AnyStakeV2 = await getAnyStakeV2(account);
+  const RegulatorV2 = await getRegulatorV2(account);
 
   return {
     address: account,
@@ -42,6 +52,8 @@ export const getAccount = async (account: string): Promise<Account> => {
     AnyStake,
     Regulator,
     Vault,
+    AnyStakeV2,
+    RegulatorV2,
   };
 };
 
@@ -49,11 +61,54 @@ export const getAnyStake = async (account: string) => {
   return (await ethers.getContractOrNull("AnyStake", account)) as AnyStake;
 };
 
+export const getAnyStakeAt = async (anystake: string, account: string) => {
+  return (await ethers.getContractAt(
+    "AnyStake",
+    anystake,
+    account
+  )) as AnyStake;
+};
+
+export const getAnyStakeV2 = async (account: string) => {
+  return (await ethers.getContractOrNull("AnyStakeV2", account)) as AnyStakeV2;
+};
+
+export const getAnyStakeV2At = async (anystake: string, account: string) => {
+  return (await ethers.getContractAt(
+    "AnyStakeV2",
+    anystake,
+    account
+  )) as AnyStakeV2;
+};
+
 export const getRegulator = async (account: string) => {
   return (await ethers.getContractOrNull(
     "AnyStakeRegulator",
     account
   )) as AnyStakeRegulator;
+};
+
+export const getRegulatorAt = async (regulator: string, account: string) => {
+  return (await ethers.getContractAt(
+    "AnyStakeRegulator",
+    regulator,
+    account
+  )) as AnyStakeRegulator;
+};
+
+export const getRegulatorV2 = async (account: string) => {
+  return (await ethers.getContractOrNull(
+    "AnyStakeRegulatorV2",
+    account
+  )) as AnyStakeRegulatorV2;
+};
+
+export const getRegulatorV2At = async (regulator: string, account: string) => {
+  return (await ethers.getContractAt(
+    "AnyStakeRegulatorV2",
+    regulator,
+    account
+  )) as AnyStakeRegulatorV2;
 };
 
 export const getVault = async (account: string) => {

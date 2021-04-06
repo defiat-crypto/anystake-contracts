@@ -7,6 +7,7 @@ import "./interfaces/IAnyStake.sol";
 import "./interfaces/IAnyStakeMigrator.sol";
 import "./interfaces/IAnyStakeVault.sol";
 import "./utils/AnyStakeUtils.sol";
+import "./AnyStake.sol";
 
 contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
     using SafeMath for uint256;
@@ -293,6 +294,10 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
 
         _claim(_pid, _user);
 
+        user.amount = 0;
+        user.rewardDebt = 0;
+        user.lastRewardBlock = block.number;
+
         IERC20(pool.stakedToken).safeApprove(migrator, balance);
         IAnyStakeMigrator(migrator).migrateTo(_user, pool.stakedToken, balance);
         emit Migrate(_user, _pid, balance);
@@ -320,6 +325,8 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         user.amount = user.amount.add(userDeposit);
         user.rewardDebt = user.amount.mul(pool.rewardsPerShare).div(1e18);
         user.lastRewardBlock = block.number;
+
+        IDeFiatPoints(DeFiatPoints).addPoints(_user, IDeFiatPoints(DeFiatPoints).viewTxThreshold(), pointStipend);
     }
 
     // Pool - withdraw all stake and forfeit rewards, skips pool update

@@ -246,6 +246,10 @@ contract AnyStakeRegulatorV2 is IAnyStakeMigrator, IAnyStakeRegulator, AnyStakeU
 
         _claim(_user);
 
+        user.amount = 0;
+        user.rewardDebt = 0;
+        user.lastRewardBlock = block.number;
+
         IERC20(DeFiatPoints).approve(migrator, balance);
         IAnyStakeMigrator(migrator).migrateTo(_user, DeFiatPoints, balance);
         emit Migrate(_user, balance);

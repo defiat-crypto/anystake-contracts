@@ -1,16 +1,7 @@
 import { DeployFunction } from "hardhat-deploy/types";
-import {
-  DeFiatGov,
-  DeFiatPoints,
-} from "@defiat-crypto/core-contracts/typechain";
 import { getGovAt, getPointsAt } from "../utils";
 
-const func: DeployFunction = async ({
-  getNamedAccounts,
-  deployments,
-  ethers,
-  network,
-}) => {
+const func: DeployFunction = async ({ getNamedAccounts, deployments }) => {
   const { deploy } = deployments;
   const { mastermind, uniswap, gov, points, token } = await getNamedAccounts();
 

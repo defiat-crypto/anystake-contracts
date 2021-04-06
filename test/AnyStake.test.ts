@@ -1,11 +1,10 @@
-import { setupClaimTest, setupStakingTest, setupTest } from "./setup";
+import { setupStakingTest, setupTest } from "./setup";
 import { expect } from "chai";
 import { ethers, getNamedAccounts } from "hardhat";
-import { AnyStake, IERC20 } from "../typechain";
 import { getAnyStakeDeploymentPools } from "../utils/pools";
-import { buyToken, depositForWeth } from "../utils";
+import { approveToken, getERC20At } from "../utils";
 import { BigNumber } from "@ethersproject/bignumber";
-import { parseEther } from "@ethersproject/units";
+import { advanceNBlocks } from "../utils/time";
 
 describe("AnyStake", () => {
   it("should deploy and setup AnyStake correctly", async () => {
@@ -21,211 +20,61 @@ describe("AnyStake", () => {
     expect(discountRate.toNumber()).eq(100);
   });
 
-  it("allows deposits in each pool and reward points", async () => {
-    const { alpha } = await setupStakingTest();
-    const { AnyStake } = alpha;
-    const { token, tokenLp, pointsLp, usdc, wbtc } = await getNamedAccounts();
-    const tests = [
-      { args: ["DFT", 0, token], expected: 0 },
-      { args: ["DFT-LP", 1, tokenLp], expected: 0 },
-      { args: ["DFTP-LP", 2, pointsLp], expected: 0 },
-      { args: ["USDC", 3, usdc], expected: 0 },
-      { args: ["WBTC", 4, wbtc], expected: 0 },
-    ];
-
-    for (let test of tests) {
-      const pointsBefore = await alpha.Points.balanceOf(alpha.address);
-      const pointStipend = await alpha.AnyStake.pointStipend();
-      const Token = (await ethers.getContractAt(
-        "IERC20",
-        test.args[2] as string,
-        alpha.address
-      )) as IERC20;
-      await Token.approve(
-        AnyStake.address,
-        ethers.constants.MaxUint256
-      ).then((tx) => tx.wait());
-      const balance = await Token.balanceOf(alpha.address);
-      console.log(`Staking ${balance.toString()} ${test.args[0]}`);
-      await AnyStake.deposit(test.args[1] as number, balance).then((tx) =>
-        tx.wait()
-      );
-      const info = await AnyStake.userInfo(
-        test.args[1] as number,
-        alpha.address
-      );
-
-      const pointsAfter = await alpha.Points.balanceOf(alpha.address);
-
-      expect(info.amount.toString()).eq(balance.toString());
-      // expect(pointsBefore.add(pointStipend).toString()).eq(
-      //   pointsAfter.toString()
-      // );
-    }
-  });
-
-  it("should allow claims of pending rewards", async () => {
-    const { alpha } = await setupClaimTest();
-    const { AnyStake, Token } = alpha;
-
-    const balanceBefore = await Token.balanceOf(alpha.address);
-
-    await AnyStake.claim(0).then((tx) => tx.wait());
-
-    const balanceAfterLp = await Token.balanceOf(alpha.address);
-
-    await AnyStake.claim(2).then((tx) => tx.wait());
-
-    const balanceAfter = await Token.balanceOf(alpha.address);
-
-    const lpReward = balanceAfterLp.sub(balanceBefore);
-    const poolReward = balanceAfter.sub(balanceAfterLp);
-
-    expect(balanceAfter.gt(balanceBefore)).true;
-    expect(lpReward.gt(poolReward)).true;
-  });
-
-  it("should allow claiming all pending rewards", async () => {
-    const { alpha } = await setupClaimTest();
-    const { AnyStake, Token } = alpha;
-
-    const balanceBefore = await Token.balanceOf(alpha.address);
-
-    await AnyStake.claim(0).then((tx) => tx.wait());
-    await AnyStake.claim(1).then((tx) => tx.wait());
-    await AnyStake.claim(2).then((tx) => tx.wait());
-    await AnyStake.claim(3).then((tx) => tx.wait());
-
-    const balanceAfter = await Token.balanceOf(alpha.address);
-    const lpRewardPending = await AnyStake.pending(0, alpha.address);
-    const poolRewardPending = await AnyStake.pending(2, alpha.address);
-
-    expect(balanceAfter.gt(balanceBefore)).true;
-    expect(lpRewardPending.toNumber()).eq(0);
-    expect(poolRewardPending.toNumber()).eq(0);
-  });
-
   it("should reject claims when no staked balance", async () => {
     const { beta } = await setupTest();
     const { AnyStake } = beta;
 
     expect(AnyStake.claim(0)).to.be.reverted;
-    // expect(AnyStake.claimAll()).to.be.reverted;
-  });
-
-  it("should allow withdraws from staking pools and buyback", async () => {
-    const { alpha } = await setupClaimTest();
-    const { AnyStake, Token, Vault } = alpha;
-    const { token, tokenLp, usdc, wbtc } = await getNamedAccounts();
-
-    const tests = [
-      { args: ["DFT", 0, token], expected: 0 },
-      { args: ["DFT/ETH", 1, tokenLp], expected: 0 },
-      // { args: ["USDC", 3, usdc], expected: 0 },
-      // { args: ["WBTC", 3, wbtc], expected: 0 },
-    ];
-
-    for (let test of tests) {
-      const subjectToken = (await ethers.getContractAt(
-        "IERC20",
-        test.args[2] as string,
-        alpha.address
-      )) as IERC20;
-
-      const info = await AnyStake.userInfo(test.args[1], alpha.address);
-      const price = await Vault.getTokenPrice(Token.address, tokenLp);
-      const rewards = await Token.balanceOf(Vault.address);
-      const balance = await subjectToken.balanceOf(alpha.address);
-
-      await AnyStake.withdraw(test.args[1], info.amount).then((tx) =>
-        tx.wait()
-      );
-
-      const infoAfter = await AnyStake.userInfo(test.args[1], alpha.address);
-      const priceAfter = await Vault.getTokenPrice(Token.address, tokenLp);
-      const rewardsAfter = await Token.balanceOf(Vault.address);
-      const balanceAfter = await subjectToken.balanceOf(alpha.address);
-
-      expect(infoAfter.amount.toNumber()).eq(0);
-
-      if (test.args[1] >= 3) {
-        expect(priceAfter.gt(price)).true;
-        expect(rewardsAfter.gt(rewards)).true;
-        expect(balanceAfter.sub(balance).eq(info.amount.mul(95).div(100)));
-      } else {
-        expect(balanceAfter.sub(balance).gte(info.amount)).true;
-      }
-    }
   });
 
   it("should reject withdraws when invalid", async () => {
-    const { alpha, beta } = await setupTest();
+    const { beta } = await setupTest();
+    const { AnyStake } = beta;
 
-    // withdraw = 0
-    // withdraw > staked
-    expect(beta.AnyStake.withdraw(0, "0")).to.be.reverted;
-    // expect(AnyStakeBeta.withdraw(0, '1')).to.be.reverted;
+    expect(AnyStake.withdraw(0, "0")).to.be.reverted;
   });
 
   it("full deposit/withdraw deployment test for AnyStake", async () => {
     const { alpha } = await setupStakingTest();
-    const { AnyStake, Token, Vault } = alpha;
+    const { AnyStake, Token, Vault, Points } = alpha;
     const { tokenLp } = await getNamedAccounts();
     const pools = await getAnyStakeDeploymentPools();
 
     let pid = 0;
     for (let pool of pools) {
-      const pointsBefore = await alpha.Points.balanceOf(alpha.address);
-      const pointStipend = await alpha.AnyStake.pointStipend();
+      const pointsBalanceBefore = await Points.balanceOf(alpha.address);
 
-      let balance = BigNumber.from(0);
-      if (pid > 4) {
-        console.log(pid);
-        if (pid == 5) {
-          await depositForWeth(alpha.address, parseEther("1"));
-        } else {
-          await buyToken(
-            pool.token,
-            ethers.utils.parseEther("1"),
-            alpha.address
-          );
-        }
-      }
+      const Token = await getERC20At(pool.token, alpha.address);
+      await approveToken(pool.token, alpha.address, AnyStake.address);
+      const balance = await Token.balanceOf(alpha.address);
 
-      const Token = (await ethers.getContractAt(
-        "IERC20",
-        pool.token,
-        alpha.address
-      )) as IERC20;
-      await Token.approve(
-        AnyStake.address,
-        ethers.constants.MaxUint256
-      ).then((tx) => tx.wait());
-      balance = await Token.balanceOf(alpha.address);
-      console.log(`Staking ${balance.toString()} ${pool.token}`);
+      console.log(pid, "Staking", balance.toString());
       await AnyStake.deposit(pid, balance).then((tx) => tx.wait());
 
+      const pointsBalanceAfter = await Points.balanceOf(alpha.address);
       const info = await AnyStake.userInfo(pid, alpha.address);
-      const pointsAfter = await alpha.Points.balanceOf(alpha.address);
+
       expect(info.amount.lte(balance)).true;
+      expect(
+        pointsBalanceAfter
+          .sub(pointsBalanceBefore)
+          .eq(BigNumber.from(10).pow(18))
+      ).true;
+
+      await advanceNBlocks(5);
       pid += 1;
     }
 
     pid = 0;
     for (let pool of pools) {
-      console.log(pid, pool.token);
-      const subjectToken = (await ethers.getContractAt(
-        "IERC20",
-        pool.token,
-        alpha.address
-      )) as IERC20;
-
+      const subjectToken = await getERC20At(pool.token, alpha.address);
       const info = await AnyStake.userInfo(pid, alpha.address);
       const price = await Vault.getTokenPrice(Token.address, tokenLp);
       const rewards = await Token.balanceOf(Vault.address);
       const balance = await subjectToken.balanceOf(alpha.address);
 
       if (pid != 0) {
+        console.log(pid, "Unstaking", info.amount.toString());
         await AnyStake.withdraw(pid, info.amount).then((tx) => tx.wait());
       }
 
@@ -236,20 +85,15 @@ describe("AnyStake", () => {
 
       if (pid != 0) {
         expect(infoAfter.amount.toNumber()).eq(0);
-      }
 
-      if (pid >= 3) {
-        expect(priceAfter.gt(price)).true;
-        expect(rewardsAfter.gt(rewards)).true;
-        // expect(balanceAfter.sub(balance).gte(info.amount.mul(95).div(100)))
-        // .true;
-      } else {
-        console.log(
-          balanceAfter.toString(),
-          balance.toString(),
-          info.amount.toString()
-        );
-        // expect(balanceAfter.sub(balance).gte(info.amount)).true;
+        if (pid < 3) {
+          expect(balanceAfter.sub(balance).gte(info.amount)).true;
+        } else {
+          expect(priceAfter.gt(price)).true;
+          expect(rewardsAfter.gt(rewards)).true;
+          // expect(balanceAfter.sub(balance).gte(info.amount.mul(95).div(100)))
+          // .true;
+        }
       }
 
       pid += 1;

@@ -1,21 +1,6 @@
 import { DeployFunction } from "hardhat-deploy/types";
-import {
-  AnyStake,
-  FeeOnTransferToken,
-  IUniswapV2Factory,
-  VariableDecimalToken,
-} from "../typechain";
-import {
-  DeFiatGov,
-  DeFiatPoints,
-} from "@defiat-crypto/core-contracts/typechain";
-import {
-  addLiquidity,
-  approveToken,
-  getGovAt,
-  getPointsAt,
-  getRouter,
-} from "../utils";
+import { AnyStake } from "../typechain";
+import { getGovAt, getPointsAt } from "../utils";
 import { getAnyStakeDeploymentPools } from "../utils/pools";
 
 const func: DeployFunction = async ({
@@ -26,8 +11,6 @@ const func: DeployFunction = async ({
 }) => {
   const { deploy } = deployments;
   const {
-    wbtc,
-    wbtcLp,
     gov,
     mastermind,
     points,
@@ -35,8 +18,6 @@ const func: DeployFunction = async ({
     token,
     tokenLp,
     uniswap,
-    usdc,
-    usdcLp,
     zero,
     feeToken,
     feeTokenLp,
@@ -56,17 +37,14 @@ const func: DeployFunction = async ({
     "AnyStake",
     mastermind
   )) as AnyStake;
-  const s = await anystake.governance();
-  console.log(s);
 
   const Gov = await getGovAt(gov, mastermind);
   const Points = await getPointsAt(points, mastermind);
 
   if (result.newlyDeployed) {
     await Gov.setActorLevel(result.address, 2).then((tx) => tx.wait());
-    console.log("set gov");
     await Points.overrideDiscount(result.address, 100).then((tx) => tx.wait());
-    console.log("discount");
+    await Points.setWhitelisted(result.address, true).then((tx) => tx.wait());
   }
 
   if (!network.live || network.name == "mainnet") {
@@ -80,7 +58,6 @@ const func: DeployFunction = async ({
     await anystake
       .addPoolBatch(tokens, lpTokens, allocPoints, vipAmount, feeAmount)
       .then((tx) => tx.wait());
-    console.log("batch");
   } else if (network.name == "rinkeby") {
     // const feeToken = await deploy("FeeOnTransferToken", {
     //   from: mastermind,
