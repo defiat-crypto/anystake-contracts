@@ -8,7 +8,7 @@ import "./interfaces/IAnyStakeRegulator.sol";
 import "./interfaces/IAnyStakeVault.sol";
 import "./utils/AnyStakeUtils.sol";
 
-contract AnyStakeRegulatorV2 is IAnyStakeRegulator, AnyStakeUtils {
+contract AnyStakeRegulatorV2 is IAnyStakeMigrator, IAnyStakeRegulator, AnyStakeUtils {
     using SafeMath for uint256;
 
     event Initialized(address indexed user, address vault);
@@ -32,14 +32,16 @@ contract AnyStakeRegulatorV2 is IAnyStakeRegulator, AnyStakeUtils {
 
     mapping (address => UserInfo) public userInfo;
     
-    address public migrator;
-    address public vault;
+    address public regulator; // address of the Regulator V1
+    address public migrator; // address of the contract we may migrate to
+    address public vault; // address of the vault
 
     bool public active; // staking is active
     bool public initialized; // contract has been initialized
     uint256 public stakingFee; // fee taken on withdrawals
     uint256 public priceMultiplier; // price peg control, DFT_PRICE = (DFTP_PRICE * priceMultiplier) / 1000
     uint256 public lastRewardBlock; // last block that rewards were received
+    uint256 public pointsBuybackBalance; // total pending DFTPv2 awaiting stabilization
     uint256 public buybackBalance; // total pending DFT awaiting stabilization
     uint256 public buybackRate; // rate of rewards stockpiled for stabilization
     uint256 public rewardsPerShare; // DFT rewards per DFTP, times 1e18 to prevent underflow
@@ -54,6 +56,11 @@ contract AnyStakeRegulatorV2 is IAnyStakeRegulator, AnyStakeUtils {
         _;
     }
 
+    modifier onlyRegulator {
+        require(msg.sender == regulator, "Regulator: Only previous Regulator allowed");
+        _;
+    }
+
     modifier onlyVault() {
         require(msg.sender == vault, "AnyStake: Only Vault allowed");
         _;
@@ -64,10 +71,11 @@ contract AnyStakeRegulatorV2 is IAnyStakeRegulator, AnyStakeUtils {
         _;
     }
 
-    constructor(address _router, address _gov, address _points, address _token) 
+    constructor(address _regulator, address _router, address _gov, address _points, address _token) 
         public 
         AnyStakeUtils(_router, _gov, _points, _token)
     {
+        regulator = _regulator;
         priceMultiplier = 10000; // 10000 / 1000 = 10:1
         stakingFee = 100; // 10%
         buybackRate = 300; // 30%
@@ -83,18 +91,47 @@ contract AnyStakeRegulatorV2 is IAnyStakeRegulator, AnyStakeUtils {
         emit Initialized(msg.sender, vault);
     }
 
+    function migrateTo(address _user, address _token, uint256 _amount) 
+        external
+        override
+        onlyRegulator
+    {
+        UserInfo storage user = userInfo[_user];
+
+        IERC20(_token).transferFrom(regulator, address(this), _amount);
+
+        totalShares = totalShares.add(_amount);
+        user.amount = user.amount.add(_amount);
+        user.rewardDebt = user.amount.mul(rewardsPerShare).div(1e18);
+        user.lastRewardBlock = block.number;
+    }
+
     function stabilize(uint256 amount) internal {
+        if (amount == 0) {
+            return;
+        }
+
         if (isAbovePeg()) {
             // Above Peg: sell DFTP, buy DFT, add to rewards
 
-            IERC20(DeFiatPoints).transfer(vault, amount);
+            // add incoming DFTPv2 to pointsBuyback
+            uint256 totalPointsBuybackBalance = pointsBuybackBalance.add(amount);
+            // transfer DFTPv2 to Vault to buyback
+            IERC20(DeFiatPoints).transfer(vault, totalPointsBuybackBalance);
+            // buyback DFT with DFTPv2 on Vault, rewards automatically added on next update
             IAnyStakeVault(vault).buyDeFiatWithTokens(DeFiatPoints, amount);
+            // reset points buyback
+            pointsBuybackBalance = 0;
         } else {
-            // Below Peg: sell DFT, buy DFTP, burn all proceeds (deflationary)
+            // Below Peg: accrue DFTPv2 fee, sell DFT, buy DFTP on Vault, burn Vault proceeds (deflationary)
 
+            // accrue DFTPv2
+            pointsBuybackBalance = pointsBuybackBalance.add(amount);
+            // buyback DFTPv2 with DFT on Vault
             IAnyStakeVault(vault).buyPointsWithTokens(DeFiatToken, buybackBalance);
-            IDeFiatPoints(DeFiatPoints).burn(amount);
+            // burn all DFTPv2 proceeds on Vault
             IDeFiatPoints(DeFiatPoints).overrideLoyaltyPoints(vault, 0);
+            // reset token buyback
             buybackBalance = 0;
         }
     }
@@ -138,31 +175,30 @@ contract AnyStakeRegulatorV2 is IAnyStakeRegulator, AnyStakeUtils {
     }
 
     function claim() external override activated NoReentrant(msg.sender) {
+        UserInfo storage user = userInfo[msg.sender];
+
         _updatePool();
         _claim(msg.sender);
+
+        // update pool / user metrics
+        user.rewardDebt = user.amount.mul(rewardsPerShare).div(1e18);
+        user.lastRewardBlock = block.number;
     }
 
     // Pool - Claim internal
     function _claim(address _user) internal {
         // get pending rewards
-        UserInfo storage user = userInfo[_user];
         uint256 rewards = pending(_user);
-        if (rewards == 0) {
-            return;
+        // transfer DFT rewards from Vault
+        if (rewards != 0) {
+            IAnyStakeVault(vault).distributeRewards(_user, rewards);
         }
-
-        // update pool / user metrics
-        user.rewardDebt = user.amount.mul(rewardsPerShare).div(1e18);
-        user.lastRewardBlock = block.number;
         
-        // transfer
-        IAnyStakeVault(vault).distributeRewards(_user, rewards);
         emit Claim(_user, rewards);
     }
 
     // Pool - Deposit DeFiat Points (DFTP) to earn DFT and stablize token prices
     function deposit(uint256 amount) external override activated NoReentrant(msg.sender) {
-        _updatePool();
         _deposit(msg.sender, amount);
     }
 
@@ -171,12 +207,14 @@ contract AnyStakeRegulatorV2 is IAnyStakeRegulator, AnyStakeUtils {
         UserInfo storage user = userInfo[_user];
         require(_amount > 0, "Deposit: Cannot deposit zero tokens");
 
+        _updatePool();
         _claim(_user);
 
         // update pool / user metrics
         totalShares = totalShares.add(_amount);
         user.amount = user.amount.add(_amount);
         user.rewardDebt = user.amount.mul(rewardsPerShare).div(1e18);
+        user.lastRewardBlock = block.number;
 
         IERC20(DeFiatPoints).transferFrom(_user, address(this), _amount);
         emit Deposit(_user, _amount);
@@ -184,7 +222,6 @@ contract AnyStakeRegulatorV2 is IAnyStakeRegulator, AnyStakeUtils {
 
     // Pool - Withdraw function, currently unused
     function withdraw(uint256 amount) external override NoReentrant(msg.sender) {
-        _updatePool();
         _withdraw(msg.sender, amount); // internal, unused
     }
 
@@ -193,25 +230,24 @@ contract AnyStakeRegulatorV2 is IAnyStakeRegulator, AnyStakeUtils {
         UserInfo storage user = userInfo[_user];
         require(_amount <= user.amount, "Withdraw: Not enough staked");
 
+        _updatePool();
         _claim(_user);
 
         uint256 feeAmount = _amount.mul(stakingFee).div(1000);
         uint256 remainingUserAmount = _amount.sub(feeAmount);
 
-        if (feeAmount > 0) {
-            stabilize(feeAmount);
-        }
+        stabilize(feeAmount);
 
         totalShares = totalShares.sub(_amount);
         user.amount = user.amount.sub(_amount);
         user.rewardDebt = user.amount.mul(rewardsPerShare).div(1e18);
+        user.lastRewardBlock = block.number;
 
         IERC20(DeFiatPoints).transfer(_user, remainingUserAmount);
         emit Withdraw(_user, remainingUserAmount);
     }
 
     function migrate() external override NoReentrant(msg.sender) {
-        _updatePool();
         _migrate(msg.sender);
     }
 
@@ -221,26 +257,32 @@ contract AnyStakeRegulatorV2 is IAnyStakeRegulator, AnyStakeUtils {
 
         require(migrator != address(0), "Migrate: No migrator set");
         require(balance > 0, "Migrate: No tokens to migrate");
+        require(!active, "Migrate: Pool is still active");
+
+        _claim(_user);
 
         IERC20(DeFiatPoints).approve(migrator, balance);
         IAnyStakeMigrator(migrator).migrateTo(_user, DeFiatPoints, balance);
         emit Migrate(_user, balance);
     }
 
-    // Emergency withdraw all basis, burn the staking fee
+    // Emergency withdraw all basis, add staking fee to points buyback balance
     function emergencyWithdraw() external NoReentrant(msg.sender) {
         UserInfo storage user = userInfo[msg.sender];
-
         require(user.amount > 0, "EmergencyWithdraw: user amount insufficient");
 
+        // find the fee amount and remaining user amount
         uint256 feeAmount = user.amount.mul(stakingFee).div(1000);
         uint256 remainingUserAmount = user.amount.sub(feeAmount);
+
+        // update pool / user metrics
         totalShares = totalShares.sub(user.amount);
         user.amount = 0;
         user.rewardDebt = 0;
         user.lastRewardBlock = block.number;
 
-        IDeFiatPoints(DeFiatPoints).burn(feeAmount);
+        // add to points buyback and send user their share
+        pointsBuybackBalance = pointsBuybackBalance.add(feeAmount);
         safeTokenTransfer(msg.sender, DeFiatPoints, remainingUserAmount);
         emit EmergencyWithdraw(msg.sender, remainingUserAmount);
     }
