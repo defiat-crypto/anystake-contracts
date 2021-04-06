@@ -1,8 +1,8 @@
 import { ethers, getNamedAccounts } from "hardhat";
 import { AnyStakeVault, IERC20 } from "../typechain";
 
-const BOND_AMOUNT = ethers.utils.parseEther("500");
-const BOND_BLOCKS = 500000;
+const BOND_AMOUNT = ethers.utils.parseEther("60000");
+const BOND_BLOCKS = 1036800;
 
 const main = async () => {
   const { mastermind, token } = await getNamedAccounts();
