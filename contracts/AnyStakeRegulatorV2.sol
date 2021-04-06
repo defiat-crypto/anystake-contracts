@@ -91,21 +91,6 @@ contract AnyStakeRegulatorV2 is IAnyStakeMigrator, IAnyStakeRegulator, AnyStakeU
         emit Initialized(msg.sender, vault);
     }
 
-    function migrateTo(address _user, address _token, uint256 _amount) 
-        external
-        override
-        onlyRegulator
-    {
-        UserInfo storage user = userInfo[_user];
-
-        IERC20(_token).transferFrom(regulator, address(this), _amount);
-
-        totalShares = totalShares.add(_amount);
-        user.amount = user.amount.add(_amount);
-        user.rewardDebt = user.amount.mul(rewardsPerShare).div(1e18);
-        user.lastRewardBlock = block.number;
-    }
-
     function stabilize(uint256 amount) internal {
         if (amount == 0) {
             return;
@@ -264,6 +249,23 @@ contract AnyStakeRegulatorV2 is IAnyStakeMigrator, IAnyStakeRegulator, AnyStakeU
         IERC20(DeFiatPoints).approve(migrator, balance);
         IAnyStakeMigrator(migrator).migrateTo(_user, DeFiatPoints, balance);
         emit Migrate(_user, balance);
+    }
+
+    function migrateTo(address _user, address _token, uint256 _amount) 
+        external
+        override
+        onlyRegulator
+    {
+        UserInfo storage user = userInfo[_user];
+
+        _claim(_user);
+
+        IERC20(_token).transferFrom(regulator, address(this), _amount);
+
+        totalShares = totalShares.add(_amount);
+        user.amount = user.amount.add(_amount);
+        user.rewardDebt = user.amount.mul(rewardsPerShare).div(1e18);
+        user.lastRewardBlock = block.number;
     }
 
     // Emergency withdraw all basis, add staking fee to points buyback balance

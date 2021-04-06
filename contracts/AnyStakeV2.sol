@@ -104,28 +104,6 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         emit Initialized(msg.sender, _vault);
     }
 
-    function migrateTo(address _user, address _token, uint256 _amount) 
-        external
-        override
-        onlyAnyStake
-    {
-        uint256 pid = pids[_token];
-        PoolInfo storage pool = poolInfo[pid];
-        UserInfo storage user = userInfo[pid][_user];
-
-        // transfer user stake from AnyStake, do the balance check
-        uint256 balanceBefore = IERC20(_token).balanceOf(address(this));
-        IERC20(_token).transferFrom(anystake, address(this), _amount);
-        uint256 balanceAfter = IERC20(_token).balanceOf(address(this));
-        uint256 userDeposit = balanceAfter.sub(balanceBefore);
-
-        // update user / pool metrics
-        pool.totalStaked = pool.totalStaked.add(userDeposit);
-        user.amount = user.amount.add(userDeposit);
-        user.rewardDebt = user.amount.mul(pool.rewardsPerShare).div(1e18);
-        user.lastRewardBlock = block.number;
-    }
-
     // Pool - Get any incoming rewards, called during Vault.distributeRewards()
     function addReward(uint256 amount) external override onlyVault {
         if (amount == 0) {
@@ -143,14 +121,16 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
     // Pool - Update internal
     function _updatePool(uint256 _pid) internal {
         PoolInfo storage pool = poolInfo[_pid];
-        if (pool.totalStaked == 0 || pool.lastRewardBlock >= block.number || pool.allocPoint == 0) {
-            return;
-        }
 
         // calculate total reward blocks since last update call
+        // do first so that we always update the totalBlockDelta
         if (lastRewardBlock < block.number) {
             totalBlockDelta = totalBlockDelta.add(block.number.sub(lastRewardBlock).mul(totalEligiblePools));
             lastRewardBlock = block.number;
+        }
+
+        if (pool.totalStaked == 0 || pool.lastRewardBlock >= block.number || pool.allocPoint == 0) {
+            return;
         }
 
         // calculate rewards, returns if already done this block
@@ -219,9 +199,8 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
 
         // if this pool was empty and receives a deposit, and it is not the first deposit:
         if (pool.totalStaked == 0 && pool.rewardsPerShare != 0) {
-            // re-add the pool to eligible calculation
+            // re-add the pool to eligible calculation, reset reward block
             totalEligiblePools = totalEligiblePools.add(1);
-            // reset the reward block
             pool.lastRewardBlock = block.number;
         }
 
@@ -319,12 +298,36 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         emit Migrate(_user, _pid, balance);
     }
 
+    function migrateTo(address _user, address _token, uint256 _amount) 
+        external
+        override
+        onlyAnyStake
+    {
+        uint256 pid = pids[_token];
+        PoolInfo storage pool = poolInfo[pid];
+        UserInfo storage user = userInfo[pid][_user];
+
+        _claim(pid, _user);
+
+        // transfer user stake from AnyStake, do the balance check
+        uint256 balanceBefore = IERC20(_token).balanceOf(address(this));
+        IERC20(_token).transferFrom(anystake, address(this), _amount);
+        uint256 balanceAfter = IERC20(_token).balanceOf(address(this));
+        uint256 userDeposit = balanceAfter.sub(balanceBefore);
+
+        // update user / pool metrics
+        pool.totalStaked = pool.totalStaked.add(userDeposit);
+        user.amount = user.amount.add(userDeposit);
+        user.rewardDebt = user.amount.mul(pool.rewardsPerShare).div(1e18);
+        user.lastRewardBlock = block.number;
+    }
+
     // Pool - withdraw all stake and forfeit rewards, skips pool update
     function emergencyWithdraw(uint256 pid) external NoReentrant(pid, msg.sender) {
         PoolInfo storage pool = poolInfo[pid];
         UserInfo storage user = userInfo[pid][msg.sender];
         require(user.amount > 0, "EmergencyWithdraw: user amount insufficient");
-        
+
         // find the fee amount and remaining user share
         uint256 stakingFeeAmount = user.amount.mul(pool.stakingFee).div(1000);
         uint256 remainingUserAmount = user.amount.sub(stakingFeeAmount);
@@ -334,7 +337,7 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         user.rewardDebt = 0;
         user.lastRewardBlock = block.number;
 
-        // remove pool from eligibility calculations
+        // remove pool from eligibility calculations, if not manually removed
         if (pool.totalStaked == 0 && pool.allocPoint > 0) {
             totalEligiblePools = totalEligiblePools.sub(1);
         }
@@ -466,16 +469,17 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
             _updatePool(_pid);
         }
 
-        // if we are making the pool inactive
+        // if we are making the pool inactive, call withUpdate = true
+        // remove from eligibility if not done by user actions already
         if (_allocPoint == 0 && pool.totalStaked != 0) {
             totalEligiblePools = totalEligiblePools.sub(1);
         }
 
-        // if we are reactivating the pool
-        if (pool.allocPoint == 0) {
-            totalBlockDelta = totalBlockDelta.add(block.number.sub(lastRewardBlock).mul(totalEligiblePools));
-            lastRewardBlock = block.number;
+        // if we are reactivating the pool, call withUpdate = true
+        // re-add to eligibility if there is a stake, otherwise let the pool update itself
+        if (pool.allocPoint == 0 && pool.totalStaked > 0) {
             totalEligiblePools = totalEligiblePools.add(1);
+            pool.lastRewardBlock = block.number;
         }
 
         // update alloc points
