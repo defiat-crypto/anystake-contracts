@@ -8,8 +8,10 @@ import "./interfaces/IVaultMigrator.sol";
 import "./interfaces/IAnyStakeRegulator.sol";
 import "./interfaces/IAnyStakeVault.sol";
 import "./utils/AnyStakeUtils.sol";
+import "./AnyStake.sol";
+import "./AnyStakeVault.sol";
 
-contract AnyStakeVaultV2 is IAnyStakeVault, AnyStakeUtils {
+contract AnyStakeVaultV2 is IVaultMigrator, IAnyStakeVault, AnyStakeUtils {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
@@ -23,9 +25,12 @@ contract AnyStakeVaultV2 is IAnyStakeVault, AnyStakeUtils {
     event RewardsDistributed(address indexed user, uint256 anystakeAmount, uint256 regulatorAmount);
     event RewardsBonded(address indexed user, uint256 bondedAmount, uint256 bondedLengthBlocks);
 
-    address public anystake;
-    address public regulator;
-    address public migrator;
+    address public vault; // address of Vault V1
+    address public anystake; // address of AnyStake
+    address public regulator; // address of Regulator
+    address public migrator; // address of contract we may migrate to
+
+    mapping (address => bool) public authorized; // addresses authorized to make a withdrawal
 
     uint256 public bondedRewards; // DFT bonded (block-based) rewards
     uint256 public bondedRewardsPerBlock; // Amt of bonded DFT paid out each block
@@ -39,13 +44,19 @@ contract AnyStakeVaultV2 is IAnyStakeVault, AnyStakeUtils {
 
     modifier onlyAuthorized() {
         require(
-            msg.sender == anystake || msg.sender == regulator, 
+            authorized[msg.sender],
             "Vault: Only AnyStake and Regulator allowed"
         );
         _;
     }
+
+    modifier onlyVault() {
+        require(msg.sender == vault, "Vault: only previous Vault allowed");
+        _;
+    }
     
     constructor(
+        address _vault,
         address _router, 
         address _gov, 
         address _points, 
@@ -56,9 +67,13 @@ contract AnyStakeVaultV2 is IAnyStakeVault, AnyStakeUtils {
         public
         AnyStakeUtils(_router, _gov, _points, _token)
     {
+        vault = _vault;
         anystake = _anystake;
         regulator = _regulator;
         distributionRate = 700; // 70%, base 100
+
+        authorized[_anystake] = true;
+        authorized[_regulator] = true;
     }
 
     // Rewards - Distribute accumulated rewards during pool update
@@ -231,6 +246,25 @@ contract AnyStakeVaultV2 is IAnyStakeVault, AnyStakeUtils {
         emit Migrate(msg.sender, migrator);
     }
 
+    function migrateTo() external override onlyVault {
+        // bonded rewards
+        bondedRewards = AnyStakeVault(vault).bondedRewards();
+        bondedRewardsBlocksRemaining = AnyStakeVault(vault).bondedRewardsBlocksRemaining();
+        bondedRewardsPerBlock = AnyStakeVault(vault).bondedRewardsPerBlock();
+
+        // pending rewards - Only take Regulator rewards
+        uint256 previousPending = AnyStakeVault(vault).pendingRewards();
+        uint256 anystakePending = AnyStake(anystake).pendingRewards();
+        pendingRewards = previousPending.sub(anystakePending);
+
+        // distribution vars
+        lastDistributionBlock = AnyStakeVault(vault).lastDistributionBlock();        
+
+        // get tokens
+        uint256 balance = IERC20(DeFiatToken).balanceOf(vault).sub(anystakePending);
+        IERC20(DeFiatToken).transferFrom(vault, address(this), balance);
+    }
+
     // Governance - Add Bonded Rewards, rewards paid out over fixed timeframe
     // Used for pre-AnyStake accumulated Treasury rewards and promotions
     function addBondedRewards(uint256 _amount, uint256 _blocks) external onlyGovernor {
@@ -270,6 +304,7 @@ contract AnyStakeVaultV2 is IAnyStakeVault, AnyStakeUtils {
         require(_anystake != address(0), "SetAnyStake: Must have AnyStake value");
 
         anystake = _anystake;
+        authorized[_anystake] = true;
         emit AnyStakeUpdated(msg.sender, anystake);
     }
 
@@ -279,6 +314,7 @@ contract AnyStakeVaultV2 is IAnyStakeVault, AnyStakeUtils {
         require(_regulator != address(0), "SetRegulator: Must have Regulator value");
 
         regulator = _regulator;
+        authorized[_regulator] = true;
         emit RegulatorUpdated(msg.sender, regulator);
     }
 }
