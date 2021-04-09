@@ -1,26 +1,11 @@
 import { DeployFunction } from "hardhat-deploy/types";
-import { AnyStake, AnyStakeRegulator } from "../typechain";
-import {
-  DeFiatGov,
-  DeFiatPoints,
-} from "@defiat-crypto/core-contracts/typechain";
-import { getGovAt, getPointsAt } from "../utils";
+import { getAnyStake, getGovAt, getPointsAt, getRegulator } from "../utils";
 
-const func: DeployFunction = async ({
-  getNamedAccounts,
-  deployments,
-  ethers,
-}) => {
+const func: DeployFunction = async ({ getNamedAccounts, deployments }) => {
   const { deploy } = deployments;
   const { mastermind, uniswap, token, points, gov } = await getNamedAccounts();
-  const anystake = (await ethers.getContract(
-    "AnyStake",
-    mastermind
-  )) as AnyStake;
-  const regulator = (await ethers.getContract(
-    "AnyStakeRegulator",
-    mastermind
-  )) as AnyStakeRegulator;
+  const anystake = await getAnyStake(mastermind);
+  const regulator = await getRegulator(mastermind);
 
   const result = await deploy("AnyStakeVault", {
     from: mastermind,

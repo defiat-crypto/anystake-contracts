@@ -1,6 +1,10 @@
 import { ethers } from "hardhat";
 import { expect } from "chai";
-import { setupClaimTest, setupTest } from "./setup";
+import {
+  setupAnyStakeClaimTest,
+  setupRegulatorClaimTest,
+  setupTest,
+} from "./setup";
 
 describe("AnyStakeVault", () => {
   it("should deploy and setup Vault correctly", async () => {
@@ -44,7 +48,7 @@ describe("AnyStakeVault", () => {
   });
 
   it("should distribute rewards on AnyStake updates", async () => {
-    const { mastermind } = await setupClaimTest();
+    const { mastermind } = await setupAnyStakeClaimTest();
     const { AnyStake, Regulator, Token, Vault } = mastermind;
 
     await AnyStake.updatePool(0).then((tx) => tx.wait());
@@ -55,18 +59,13 @@ describe("AnyStakeVault", () => {
     const regulatorBuyback = await Regulator.buybackBalance();
     const regulatorRewards = pendingRewards.mul(3).div(10);
 
-    console.log("bal", balance.toString());
-    console.log("pending", pendingRewards.toString());
-    console.log("bond", bondedRewards.toString());
-    console.log("bb", regulatorBuyback.toString());
-
     expect(balance.eq(pendingRewards.add(bondedRewards))).true;
     expect(regulatorRewards.mul(3).div(10).eq(regulatorBuyback)).true;
   });
 
   it("should distribute rewards on Regulator updates", async () => {
-    const { mastermind } = await setupClaimTest();
-    const { AnyStake, Regulator, Token, Vault } = mastermind;
+    const { mastermind } = await setupRegulatorClaimTest();
+    const { Regulator, Token, Vault } = mastermind;
 
     await Regulator.updatePool().then((tx) => tx.wait());
 
@@ -75,11 +74,6 @@ describe("AnyStakeVault", () => {
     const pendingRewards = await Vault.pendingRewards();
     const regulatorBuyback = await Regulator.buybackBalance();
     const regulatorRewards = pendingRewards.mul(3).div(10);
-
-    console.log("bal", balance.toString());
-    console.log("pending", pendingRewards.toString());
-    console.log("bond", bondedRewards.toString());
-    console.log("bb", regulatorBuyback.toString());
 
     expect(balance.eq(pendingRewards.add(bondedRewards))).true;
     expect(regulatorRewards.mul(3).div(10).eq(regulatorBuyback)).true;

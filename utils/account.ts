@@ -5,6 +5,7 @@ import {
   AnyStakeRegulatorV2,
   AnyStakeV2,
   AnyStakeVault,
+  AnyStakeVaultV2,
 } from "../typechain";
 import {
   DeFiatGov,
@@ -31,6 +32,7 @@ export interface Account {
   Vault: AnyStakeVault;
   AnyStakeV2: AnyStakeV2;
   RegulatorV2: AnyStakeRegulatorV2;
+  VaultV2: AnyStakeVaultV2;
 }
 
 export const getAccount = async (account: string): Promise<Account> => {
@@ -43,6 +45,7 @@ export const getAccount = async (account: string): Promise<Account> => {
   const Vault = await getVault(account);
   const AnyStakeV2 = await getAnyStakeV2(account);
   const RegulatorV2 = await getRegulatorV2(account);
+  const VaultV2 = await getVaultV2(account);
 
   return {
     address: account,
@@ -54,6 +57,7 @@ export const getAccount = async (account: string): Promise<Account> => {
     Vault,
     AnyStakeV2,
     RegulatorV2,
+    VaultV2,
   };
 };
 
@@ -116,6 +120,13 @@ export const getVault = async (account: string) => {
     "AnyStakeVault",
     account
   )) as AnyStakeVault;
+};
+
+export const getVaultV2 = async (account: string) => {
+  return (await ethers.getContractOrNull(
+    "AnyStakeVaultV2",
+    account
+  )) as AnyStakeVaultV2;
 };
 
 export const getTokenAt = async (

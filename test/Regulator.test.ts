@@ -1,8 +1,8 @@
 import { ethers, getNamedAccounts } from "hardhat";
 import { expect } from "chai";
 import {
-  setupClaimTest,
   setupPeggedTest,
+  setupRegulatorClaimTest,
   setupStakingTest,
   setupTest,
 } from "./setup";
@@ -87,7 +87,7 @@ describe("AnyStakeRegulator", () => {
   });
 
   it("should claim rewards", async () => {
-    const { alpha } = await setupClaimTest();
+    const { alpha } = await setupRegulatorClaimTest();
     const { Regulator, Token } = alpha;
 
     const balanceBefore = await Token.balanceOf(alpha.address);

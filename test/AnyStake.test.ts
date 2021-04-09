@@ -36,7 +36,7 @@ describe("AnyStake", () => {
 
   it("full deposit/withdraw deployment test for AnyStake", async () => {
     const { alpha } = await setupStakingTest();
-    const { AnyStake, Token, Vault, Points } = alpha;
+    const { AnyStake, Token, Vault, Points, Regulator } = alpha;
     const { tokenLp } = await getNamedAccounts();
     const pools = await getAnyStakeDeploymentPools();
 

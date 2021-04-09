@@ -18,7 +18,7 @@ import { setupAnyStakeMigration } from "../utils/migrate";
 import { advanceNBlocks } from "../utils/time";
 
 export const setupTest = deployments.createFixture(async (hre, options) => {
-  await deployments.fixture();
+  await deployments.fixture(["AnyStake", "Regulator", "Vault"]);
   const accounts = await setupAccounts();
   return accounts;
 });
@@ -33,33 +33,53 @@ export const setupDeployTest = deployments.createFixture(
 
 export const setupStakingTest = deployments.createFixture(
   async (hre, options) => {
-    await deployments.fixture();
+    await deployments.fixture(["AnyStake", "Regulator", "Vault"]);
     const accounts = await setupAccounts();
     await setupStaking(accounts);
     return accounts;
   }
 );
 
-export const setupClaimTest = deployments.createFixture(
+export const setupAnyStakeClaimTest = deployments.createFixture(
   async (hre, options) => {
-    await deployments.fixture();
+    await deployments.fixture(["AnyStake", "Regulator", "Vault"]);
     const accounts = await setupAccounts();
     await setupStaking(accounts);
-    await setupClaiming(accounts);
+    await setupVaultRewards(accounts);
+    await setupAnyStakeClaiming(accounts);
+    return accounts;
+  }
+);
+
+export const setupRegulatorClaimTest = deployments.createFixture(
+  async (hre, options) => {
+    await deployments.fixture(["AnyStake", "Regulator", "Vault"]);
+    const accounts = await setupAccounts();
+    await setupStaking(accounts);
+    await setupVaultRewards(accounts);
+    await setupRegulatorClaiming(accounts);
     return accounts;
   }
 );
 
 export const setupPeggedTest = deployments.createFixture(
   async (hre, options) => {
-    await deployments.fixture();
+    await deployments.fixture(["AnyStake", "Regulator", "Vault"]);
     const accounts = await setupAccounts();
     await setupStaking(accounts);
-    await setupClaiming(accounts);
+    await setupVaultRewards(accounts);
+    await setupRegulatorClaiming(accounts);
     await setupPegged(accounts, (options as any).abovePeg as boolean);
     return accounts;
   }
 );
+
+export const setupV2Tests = deployments.createFixture(async (hre, options) => {
+  await deployments.fixture();
+  const accounts = await setupAccounts();
+  await setupStaking(accounts);
+  return accounts;
+});
 
 const setupAccounts = async () => {
   const { mastermind, alpha, beta } = await getNamedAccounts();
@@ -122,10 +142,9 @@ const setupStaking = async (accounts: Accounts) => {
   console.log("Added LP");
 };
 
-const setupClaiming = async (accounts: Accounts) => {
-  const { alpha, mastermind } = accounts;
-  const { AnyStake, Regulator } = alpha;
-  const { Token, Vault } = mastermind;
+const setupAnyStakeClaiming = async (accounts: Accounts) => {
+  const { alpha } = accounts;
+  const { AnyStake } = alpha;
   const pools = await getAnyStakeDeploymentPools();
 
   let pid = 0;
@@ -140,6 +159,11 @@ const setupClaiming = async (accounts: Accounts) => {
     await advanceNBlocks(5);
     pid += 1;
   }
+};
+
+const setupRegulatorClaiming = async (accounts: Accounts) => {
+  const { alpha } = accounts;
+  const { Regulator } = alpha;
 
   console.log("Staking DFTP in Regulator...");
   await alpha.Points.approve(
@@ -150,6 +174,11 @@ const setupClaiming = async (accounts: Accounts) => {
     tx.wait()
   );
   console.log("Staked DFTP in Regulator.");
+};
+
+const setupVaultRewards = async (accounts: Accounts) => {
+  const { mastermind } = accounts;
+  const { Token, Vault } = mastermind;
 
   // Load Vault with rewards
   console.log("Transferring Vault fee rewards...");
