@@ -1,12 +1,14 @@
 import { network } from "hardhat";
 import { DeployFunction } from "hardhat-deploy/types";
 import {
+  getAnyStake,
   getAnyStakeV2,
   getGovAt,
   getPointsAt,
   getRegulator,
   getTokenAt,
   getVault,
+  getVaultV2At,
 } from "../utils";
 
 const func: DeployFunction = async ({
@@ -16,8 +18,9 @@ const func: DeployFunction = async ({
 }) => {
   const { deploy } = deployments;
   const { mastermind, uniswap, token, points, gov } = await getNamedAccounts();
-  const anystake = await getAnyStakeV2(mastermind);
-  const regulator = await getRegulator(mastermind);
+  const AnyStake = await getAnyStake(mastermind);
+  const AnyStakeV2 = await getAnyStakeV2(mastermind);
+  const Regulator = await getRegulator(mastermind);
   const Vault = await getVault(mastermind);
   const Gov = await getGovAt(gov, mastermind);
   const Points = await getPointsAt(points, mastermind);
@@ -32,22 +35,24 @@ const func: DeployFunction = async ({
       gov,
       points,
       token,
-      anystake.address,
-      regulator.address,
+      AnyStake.address,
+      Regulator.address,
     ],
   });
+
+  const VaultV2 = await getVaultV2At(result.address, mastermind);
 
   if (result.newlyDeployed) {
     // set the Vault as DFT Treasury destination and governor
     // whitelist the Anystake contracts for 0 DFT fees
-    await Gov.setFeeDestination(result.address).then((tx) => tx.wait());
-    await Gov.setActorLevel(result.address, 2).then((tx) => tx.wait());
-    await Points.overrideDiscount(result.address, 100).then((tx) => tx.wait());
+    await Gov.setFeeDestination(VaultV2.address).then((tx) => tx.wait());
+    await Gov.setActorLevel(VaultV2.address, 2).then((tx) => tx.wait());
+    await Points.overrideDiscount(VaultV2.address, 100).then((tx) => tx.wait());
     console.log("AnyStake Ecosystem now whitelisted for DFT transfers");
 
     // update the regulator and set inactive first
-    await regulator.updatePool().then((tx) => tx.wait());
-    await regulator.setActive(false).then((tx) => tx.wait());
+    await Regulator.updatePool().then((tx) => tx.wait());
+    await Regulator.setActive(false).then((tx) => tx.wait());
 
     if (network.name === "hardhat") {
       console.log("Transferring Vault fee rewards...");
@@ -64,7 +69,7 @@ const func: DeployFunction = async ({
       ).then((tx) => tx.wait());
       await Vault.addBondedRewards(
         ethers.utils.parseEther("1000"),
-        1
+        200
       ).then((tx) => tx.wait());
       console.log("Bonded rewards.");
     }
@@ -74,12 +79,13 @@ const func: DeployFunction = async ({
     await Vault.migrate().then((tx) => tx.wait());
 
     // set regulator vault and re-activate
-    await regulator.setVault(result.address).then((tx) => tx.wait());
-    await regulator.setActive(true).then((tx) => tx.wait());
+    await Regulator.setVault(result.address).then((tx) => tx.wait());
+    await Regulator.setActive(true).then((tx) => tx.wait());
     console.log("Regulator Vault Set");
 
-    // initialize anystake v2
-    await anystake.initialize(result.address).then((tx) => tx.wait());
+    // update VaultV2 Anystake and initialize anystake v2
+    await VaultV2.setAnyStake(AnyStakeV2.address).then((tx) => tx.wait());
+    await AnyStakeV2.setVault(VaultV2.address).then((tx) => tx.wait());
     console.log("AnyStake Successfully Initialized.");
   }
 };

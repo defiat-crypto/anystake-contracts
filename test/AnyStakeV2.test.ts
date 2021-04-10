@@ -61,6 +61,9 @@ describe("AnyStakeV2", () => {
       pid += 1;
     }
 
+    // await AnyStakeV2.updatePool(0).then((tx) => tx.wait());
+    await AnyStakeV2.massUpdatePools().then((tx) => tx.wait());
+
     pid = 0;
     let totalRewards = BigNumber.from(0);
     for (let pool of pools) {
@@ -78,13 +81,21 @@ describe("AnyStakeV2", () => {
     }
 
     // expect that all rewards should be accounted for here
-    const pendingAnystake1 = await AnyStakeV2.pendingRewards();
-    const pendingVault1 = await VaultV2.pendingRewards();
-    const anystakeRewards = totalRewards.add(pendingAnystake1);
-    const regulatorRewards = pendingVault1.sub(pendingAnystake1);
-    expect(anystakeRewards.add(regulatorRewards).eq(vaultRewards)).true;
+    const totalAllocPoint = await AnyStakeV2.totalAllocPoint();
+    const rewardsPerAllocPoint = await AnyStakeV2.rewardsPerAllocPoint();
+    const totalAllocRewards = rewardsPerAllocPoint
+      .mul(totalAllocPoint)
+      .div(BigNumber.from(10).pow(18));
+
     console.log(`Total claimed: ${totalRewards.toString()}`);
-    console.log(`Total available: ${anystakeRewards.toString()}`);
+    console.log(`Total rewards distro'd: ${totalAllocRewards.toString()}`);
+
+    const tokenBalanceBefore = await Token.balanceOf(alpha.address);
+    await AnyStakeV2.claimAll().then((tx) => tx.wait());
+    const tokenBalanceAfter = await Token.balanceOf(alpha.address);
+    totalRewards = totalRewards.add(tokenBalanceAfter.sub(tokenBalanceBefore));
+
+    console.log(`Total claimed (claimAll): ${totalRewards.toString()}`);
 
     pid = 0;
     for (let pool of pools) {
@@ -126,14 +137,5 @@ describe("AnyStakeV2", () => {
       await advanceNBlocks(5);
       pid += 1;
     }
-    const tokenBalanceBefore = await Token.balanceOf(alpha.address);
-    await AnyStakeV2.claimAll().then((tx) => tx.wait());
-    const tokenBalanceAfter = await Token.balanceOf(alpha.address);
-    totalRewards = totalRewards.add(tokenBalanceAfter.sub(tokenBalanceBefore));
-
-    const pendingAnystake = await AnyStakeV2.pendingRewards();
-    // const pendingVault = await VaultV2.pendingRewards();
-    console.log(`Total claimed: ${totalRewards.toString()}`);
-    console.log(`Total available: ${pendingAnystake.toString()}`);
   });
 });

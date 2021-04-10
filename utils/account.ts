@@ -137,6 +137,14 @@ export const getVaultV2 = async (account: string) => {
   )) as AnyStakeVaultV2;
 };
 
+export const getVaultV2At = async (vault: string, account: string) => {
+  return (await ethers.getContractAt(
+    "AnyStakeVaultV2",
+    vault,
+    account
+  )) as AnyStakeVaultV2;
+};
+
 export const getTokenAt = async (
   token: string,
   account: string

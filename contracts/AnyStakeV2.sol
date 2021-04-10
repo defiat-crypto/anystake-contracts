@@ -47,22 +47,19 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         uint256 lastRewardBlock; // last pool update
         uint256 vipAmount; // amount of DFT tokens that must be staked to access the pool
         uint256 stakingFee; // the % withdrawal fee charged. base 1000, 50 = 5%
-        uint256 rewardDebt; // pending rewards allocated to the pool participants
+        uint256 rewardDebt; // rewards paid out to the pool
     }
 
     address public anystake; // AnyStake V1 contract
     address public migrator; // contract where we may migrate too
     address public vault; // where rewards are stored for distribution
-    bool public initialized;
 
     PoolInfo[] public poolInfo; // array of AnyStake pools
     mapping(uint256 => mapping(address => UserInfo)) public userInfo; // mapping of (pid => (userAddress => userInfo))
     mapping(address => uint256) public pids; // quick mapping for pool ids (staked_token => pid)
 
-    uint256 public lastRewardBlock; // last block the pool was updated
-    uint256 public pendingRewards; // pending DFT rewards awaiting anyone to be distro'd to pools
     uint256 public pointStipend; // amount of DFTP awarded per deposit
-    uint256 public rewardsPerAllocPoint; // rewards per pool allocPoint
+    uint256 public rewardsPerAllocPoint; // rewards per pool allocPoint, times 1e18 to maintain precision
     uint256 public totalAllocPoint; // Total allocation points. Must be the sum of all allocation points in all pools.
 
     modifier NoReentrant(uint256 pid, address user) {
@@ -83,27 +80,12 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         _;
     }
 
-    modifier activated() {
-        require(initialized, "AnyStake: Not initialized yet");
-        _;
-    }
-
     constructor(address _anystake, address _router, address _gov, address _points, address _token) 
         public 
         AnyStakeUtils(_router, _gov, _points, _token)
     {
         anystake = _anystake;
         pointStipend = 1e18;
-    }
-    
-    // Initialize pools/rewards after the Vault has been setup
-    function initialize(address _vault) public onlyGovernor {
-        require(_vault != address(0), "Initalize: Must pass in Vault");
-        require(!initialized, "Initialize: AnyStake already initialized");
-
-        vault = _vault;
-        initialized = true;
-        emit Initialized(msg.sender, _vault);
     }
 
     // Pool - Get any incoming rewards, called during Vault.distributeRewards()
@@ -112,8 +94,7 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
             return;
         }
 
-        pendingRewards = pendingRewards.add(amount);
-        rewardsPerAllocPoint = rewardsPerAllocPoint.add(amount.div(totalAllocPoint));
+        rewardsPerAllocPoint = rewardsPerAllocPoint.add(amount.mul(1e18).div(totalAllocPoint));
     }
 
     // Pool - Updates the reward variables of the given pool
@@ -133,15 +114,24 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         IAnyStakeVault(vault).calculateRewards();     
 
         // Calculate pool's share of pending rewards 
-        uint256 poolRewards = rewardsPerAllocPoint.mul(pool.allocPoint).sub(pool.rewardDebt);
-        
-        // update reward variables
-        pendingRewards = pendingRewards.sub(poolRewards);
+        uint256 poolRewards = pendingPool(_pid);
         
         // update pool variables
-        pool.rewardsPerShare = pool.rewardsPerShare.add(poolRewards.mul(1e18).div(pool.totalStaked));
-        pool.rewardDebt = pool.rewardDebt.add(poolRewards);
+        if (poolRewards > 0) {
+            pool.rewardsPerShare = pool.rewardsPerShare.add(poolRewards.mul(1e18).div(pool.totalStaked));
+            pool.rewardDebt = pool.rewardDebt.add(poolRewards);
+        }
+        
         pool.lastRewardBlock = block.number;
+    }
+
+    // Pool - Update all pool reward variables
+    // NOTE: Must call before any change to totalAllocPoint (addPool, updatePoolAllocPoints)
+    function massUpdatePools() public {
+        uint256 length = poolInfo.length;
+        for (uint256 pid = 0; pid < length; pid++) {
+            _updatePool(pid);
+        }
     }
 
     // Pool - Claim rewards
@@ -167,6 +157,28 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         // transfer DFT rewards from Vault
         IAnyStakeVault(vault).distributeRewards(_user, rewards);
         emit Claim(_user, _pid, rewards);
+    }
+
+    // Pool - Claim all rewards, only perform one transfer to save gas
+    function claimAll() external {
+        uint256 totalClaimable;
+        uint256 length = poolInfo.length;
+        for (uint256 pid = 0; pid < length; pid++) {
+            UserInfo storage user = userInfo[pid][msg.sender];
+            if (user.lastRewardBlock < block.number && user.amount > 0) {
+                _updatePool(pid);
+                uint256 rewards = pending(pid, msg.sender);
+                if (rewards > 0) {
+                    totalClaimable = totalClaimable.add(rewards);
+                    emit Claim(msg.sender, pid, rewards);
+                }
+            }
+        }
+
+        if (totalClaimable > 0) {
+            IAnyStakeVault(vault).distributeRewards(msg.sender, totalClaimable);
+            emit ClaimAll(msg.sender, totalClaimable);
+        }
     }
 
     // Pool - Deposit Tokens
@@ -271,6 +283,7 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
 
         _claim(_pid, _user);
 
+        pool.totalStaked = pool.totalStaked.sub(balance);
         user.amount = 0;
         user.rewardDebt = 0;
         user.lastRewardBlock = block.number;
@@ -315,6 +328,7 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         // find the fee amount and remaining user share
         uint256 stakingFeeAmount = user.amount.mul(pool.stakingFee).div(1000);
         uint256 remainingUserAmount = user.amount.sub(stakingFeeAmount);
+
         // update pool / user metrics
         pool.totalStaked = pool.totalStaked.sub(user.amount);
         user.amount = 0;
@@ -325,34 +339,6 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         safeTokenTransfer(vault, pool.stakedToken, stakingFeeAmount);
         safeTokenTransfer(msg.sender, pool.stakedToken, remainingUserAmount);
         emit EmergencyWithdraw(msg.sender, pid, remainingUserAmount);
-    }
-
-    function massUpdatePools() public {
-        uint256 length = poolInfo.length;
-        for (uint256 pid = 0; pid < length; pid++) {
-            _updatePool(pid);
-        }
-    }
-
-    function claimAll() external {
-        uint256 totalClaimable;
-        uint256 length = poolInfo.length;
-        for (uint256 pid = 0; pid < length; pid++) {
-            UserInfo storage user = userInfo[pid][msg.sender];
-            if (user.lastRewardBlock < block.number && user.amount > 0) {
-                _updatePool(pid);
-                uint256 rewards = pending(pid, msg.sender);
-                if (rewards > 0) {
-                    totalClaimable = totalClaimable.add(rewards);
-                    emit Claim(msg.sender, pid, rewards);
-                }
-            }
-        }
-
-        if (totalClaimable > 0) {
-            IAnyStakeVault(vault).distributeRewards(msg.sender, totalClaimable);
-            emit ClaimAll(msg.sender, totalClaimable);
-        }
     }
 
     // View - gets stakedToken price from the Vault
@@ -369,11 +355,20 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         view
         returns (uint256)
     {
-        PoolInfo memory pool = poolInfo[_pid];
-        UserInfo memory user = userInfo[_pid][_user];
+        PoolInfo storage pool = poolInfo[_pid];
+        UserInfo storage user = userInfo[_pid][_user];
 
-        // not sure if this will work with tokens non-1e18 decimals
         return user.amount.mul(pool.rewardsPerShare).div(1e18).sub(user.rewardDebt);
+    }
+
+    // View - Pending DFT Rewards for a given pool
+    function pendingPool(uint256 _pid)
+        public
+        view
+        returns (uint256)
+    {
+        PoolInfo storage pool = poolInfo[_pid];
+        return rewardsPerAllocPoint.mul(pool.allocPoint).div(1e18).sub(pool.rewardDebt);
     }
 
     // View - View Pool Length
@@ -418,14 +413,12 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
     ) internal {
         require(pids[stakedToken] == 0, "AddPool: Token pool already added");
 
-        // update reward block
-        lastRewardBlock = block.number;
         // add token to pids
         pids[stakedToken] = poolInfo.length;
         // stakedToken now non-withrawable by admins
         _blacklistedAdminWithdraw[stakedToken] = true;
         // update total pool points
-        uint256 rewardDebt = rewardsPerAllocPoint.mul(totalAllocPoint);
+        uint256 rewardDebt = rewardsPerAllocPoint.mul(totalAllocPoint).div(1e18);
         totalAllocPoint = totalAllocPoint.add(allocPoint);
 
         // Add new pool
@@ -462,10 +455,17 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         emit VaultUpdated(msg.sender, vault);
     }
 
-    // Governance - Set Pool Allocation Points, generally should be called withUpdate = true
-    function setPoolAllocPoints(uint256 _pid, uint256 _allocPoint) external onlyGovernor {
+    // Governance - Set Pool Allocation Points, updates all pools to maintain reward distribution
+    function setPoolAllocPoints(uint256[] calldata _pids, uint256[] calldata _allocPoints) external onlyGovernor {
         massUpdatePools();
 
+        for (uint256 i = 0; i < _pids.length; i++) {
+            _setPoolAllocPoints(_pids[i], _allocPoints[i]);
+        }
+    }
+
+    // Governance - Internal, set one pool alloc points
+    function _setPoolAllocPoints(uint256 _pid, uint256 _allocPoint) internal {
         PoolInfo storage pool = poolInfo[_pid];
         require(pool.allocPoint != _allocPoint, "SetAllocPoints: No points change");
 
@@ -475,16 +475,30 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         emit PoolAllocPointsUpdated(msg.sender, _pid, _allocPoint);
     }
 
-    // Governance - Set Pool Charge Fee
-    function setPoolVipAmount(uint256 _pid, uint256 _vipAmount) external onlyGovernor {
+    // Governance - Set Pool VIP Amount, DFT staking requirement to enter the pool
+    function setPoolVipAmount(uint256[] calldata _pids, uint256[] calldata _vipAmounts) external onlyGovernor {
+        for (uint256 i = 0; i < _pids.length; i++) {
+            _setPoolVipAmount(_pids[i], _vipAmounts[i]);
+        }
+    }
+
+    // Governance - Internal, Set Pool VIP Amount
+    function _setPoolVipAmount(uint256 _pid, uint256 _vipAmount) internal {
         require(poolInfo[_pid].vipAmount != _vipAmount, "SetVipAmount: No amount change");
 
         poolInfo[_pid].vipAmount = _vipAmount;
         emit PoolVipAmountUpdated(msg.sender, _pid, _vipAmount);
     }
 
-    // Governance - Set Pool Charge Fee
-    function setPoolChargeFee(uint256 _pid, uint256 _stakingFee) external onlyGovernor {
+    // Governance - Set Pool Staking Fee, % of basis taken on withdrawal to buyback DFT
+    function setPoolStakingFee(uint256[] calldata _pids, uint256[] calldata _stakingFees) external onlyGovernor {
+        for (uint256 i = 0; i < _pids.length; i++) {
+            _setPoolStakingFee(_pids[i], _stakingFees[i]);
+        }
+    }
+
+    // Governance - Internal, Set Pool Fee
+    function _setPoolStakingFee(uint256 _pid, uint256 _stakingFee) internal {
         require(_stakingFee != poolInfo[_pid].stakingFee, "SetStakingFee: No fee change");
         require(_stakingFee <= 1000, "SetFee: Fee cannot exceed 100%");
 
@@ -492,7 +506,7 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         emit PoolStakingFeeUpdated(msg.sender, _pid, _stakingFee);
     }
 
-    // Governance - Set Pool Allocation Points
+    // Governance - Set Point Stipend for the contract
     function setPointStipend(uint256 _pointStipend) external onlyGovernor {
         require(_pointStipend != pointStipend, "SetStipend: No stipend change");
 
