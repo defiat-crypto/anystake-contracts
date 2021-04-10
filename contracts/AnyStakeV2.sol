@@ -16,6 +16,7 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
     // EVENTS
     event Initialized(address indexed user, address vault);
     event Claim(address indexed user, uint256 indexed pid, uint256 amount);
+    event ClaimAll(address indexed user, uint256 amount);
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event Migrate(address indexed user, uint256 indexed pid, uint256 amount);
@@ -46,6 +47,7 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         uint256 lastRewardBlock; // last pool update
         uint256 vipAmount; // amount of DFT tokens that must be staked to access the pool
         uint256 stakingFee; // the % withdrawal fee charged. base 1000, 50 = 5%
+        uint256 rewardDebt; // pending rewards allocated to the pool participants
     }
 
     address public anystake; // AnyStake V1 contract
@@ -60,9 +62,8 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
     uint256 public lastRewardBlock; // last block the pool was updated
     uint256 public pendingRewards; // pending DFT rewards awaiting anyone to be distro'd to pools
     uint256 public pointStipend; // amount of DFTP awarded per deposit
+    uint256 public rewardsPerAllocPoint; // rewards per pool allocPoint
     uint256 public totalAllocPoint; // Total allocation points. Must be the sum of all allocation points in all pools.
-    uint256 public totalBlockDelta; // Total blocks since last update
-    uint256 public totalEligiblePools; // Amount of pools eligible for rewards
 
     modifier NoReentrant(uint256 pid, address user) {
         require(
@@ -112,6 +113,7 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         }
 
         pendingRewards = pendingRewards.add(amount);
+        rewardsPerAllocPoint = rewardsPerAllocPoint.add(amount.div(totalAllocPoint));
     }
 
     // Pool - Updates the reward variables of the given pool
@@ -123,36 +125,22 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
     function _updatePool(uint256 _pid) internal {
         PoolInfo storage pool = poolInfo[_pid];
 
-        // calculate total reward blocks since last update call
-        // do first so that we always update the totalBlockDelta
-        if (lastRewardBlock < block.number) {
-            totalBlockDelta = totalBlockDelta.add(block.number.sub(lastRewardBlock).mul(totalEligiblePools));
-            lastRewardBlock = block.number;
-        }
-
         if (pool.totalStaked == 0 || pool.lastRewardBlock >= block.number || pool.allocPoint == 0) {
             return;
         }
 
         // calculate rewards, returns if already done this block
-        IAnyStakeVault(vault).calculateRewards();        
+        IAnyStakeVault(vault).calculateRewards();     
 
         // Calculate pool's share of pending rewards 
-        // find blocks passed since last update for this pool
-        uint256 poolBlockDelta = block.number.sub(pool.lastRewardBlock);
-        // find the pending relative to blocks passed
-        uint256 blockRewards = pendingRewards.mul(poolBlockDelta).div(totalBlockDelta);
-        // find the pending relative to alloc points
-        uint256 allocRewards = pendingRewards.mul(pool.allocPoint).div(totalAllocPoint);
-        // find the weighted average of pending rewards
-        uint256 poolRewards = blockRewards.add(allocRewards).div(2);
+        uint256 poolRewards = rewardsPerAllocPoint.mul(pool.allocPoint).sub(pool.rewardDebt);
         
         // update reward variables
-        totalBlockDelta = poolBlockDelta > totalBlockDelta ? 0 : totalBlockDelta.sub(poolBlockDelta);
-        pendingRewards = poolRewards > pendingRewards ? 0 : pendingRewards.sub(poolRewards);
+        pendingRewards = pendingRewards.sub(poolRewards);
         
         // update pool variables
         pool.rewardsPerShare = pool.rewardsPerShare.add(poolRewards.mul(1e18).div(pool.totalStaked));
+        pool.rewardDebt = pool.rewardDebt.add(poolRewards);
         pool.lastRewardBlock = block.number;
     }
 
@@ -172,11 +160,12 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
     // Pool - Claim internal, called during deposit() and withdraw()
     function _claim(uint256 _pid, address _user) internal {
         uint256 rewards = pending(_pid, _user);
-        // transfer DFT rewards from Vault
-        if (rewards != 0) {
-            IAnyStakeVault(vault).distributeRewards(_user, rewards);
+        if (rewards == 0) {
+            return;
         }
 
+        // transfer DFT rewards from Vault
+        IAnyStakeVault(vault).distributeRewards(_user, rewards);
         emit Claim(_user, _pid, rewards);
     }
 
@@ -197,13 +186,6 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         // Update and claim rewards
         _updatePool(_pid);
         _claim(_pid, _user);
-
-        // if this pool was empty and receives a deposit, and it is not the first deposit:
-        if (pool.totalStaked == 0 && pool.rewardsPerShare != 0) {
-            // re-add the pool to eligible calculation, reset reward block
-            totalEligiblePools = totalEligiblePools.add(1);
-            pool.lastRewardBlock = block.number;
-        }
 
         // Get tokens from user, balance check to support Fee-On-Transfer tokens
         uint256 amountBefore = IERC20(pool.stakedToken).balanceOf(address(this));
@@ -251,11 +233,6 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         user.amount = user.amount.sub(_amount);
         user.rewardDebt = user.amount.mul(pool.rewardsPerShare).div(1e18);
         user.lastRewardBlock = block.number;
-
-        // reduce eligible pools only if done by user actions
-        if (pool.totalStaked == 0 && pool.allocPoint > 0) {
-            totalEligiblePools = totalEligiblePools.sub(1);
-        }
 
         // find the staking fee amount
         uint256 stakingFeeAmount = _amount.mul(pool.stakingFee).div(1000);
@@ -344,15 +321,38 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         user.rewardDebt = 0;
         user.lastRewardBlock = block.number;
 
-        // remove pool from eligibility calculations, if not manually removed
-        if (pool.totalStaked == 0 && pool.allocPoint > 0) {
-            totalEligiblePools = totalEligiblePools.sub(1);
-        }
-
         // transfer vault the fee for admins to perform buyback, send user share
         safeTokenTransfer(vault, pool.stakedToken, stakingFeeAmount);
         safeTokenTransfer(msg.sender, pool.stakedToken, remainingUserAmount);
         emit EmergencyWithdraw(msg.sender, pid, remainingUserAmount);
+    }
+
+    function massUpdatePools() public {
+        uint256 length = poolInfo.length;
+        for (uint256 pid = 0; pid < length; pid++) {
+            _updatePool(pid);
+        }
+    }
+
+    function claimAll() external {
+        uint256 totalClaimable;
+        uint256 length = poolInfo.length;
+        for (uint256 pid = 0; pid < length; pid++) {
+            UserInfo storage user = userInfo[pid][msg.sender];
+            if (user.lastRewardBlock < block.number && user.amount > 0) {
+                _updatePool(pid);
+                uint256 rewards = pending(pid, msg.sender);
+                if (rewards > 0) {
+                    totalClaimable = totalClaimable.add(rewards);
+                    emit Claim(msg.sender, pid, rewards);
+                }
+            }
+        }
+
+        if (totalClaimable > 0) {
+            IAnyStakeVault(vault).distributeRewards(msg.sender, totalClaimable);
+            emit ClaimAll(msg.sender, totalClaimable);
+        }
     }
 
     // View - gets stakedToken price from the Vault
@@ -389,6 +389,8 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         uint256[] calldata vipAmounts,
         uint256[] calldata stakingFees
     ) external onlyGovernor {
+        massUpdatePools();
+
         for (uint i = 0; i < tokens.length; i++) {
             _addPool(tokens[i], lpTokens[i], allocPoints[i], vipAmounts[i], stakingFees[i]);
         }
@@ -402,6 +404,7 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         uint256 vipAmount,
         uint256 stakingFee
     ) external onlyGovernor {
+        massUpdatePools();
         _addPool(token, lpToken, allocPoint, vipAmount, stakingFee);
     }
 
@@ -415,13 +418,6 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
     ) internal {
         require(pids[stakedToken] == 0, "AddPool: Token pool already added");
 
-        // update block delta, can be called mutiple times in one block
-        if (lastRewardBlock != 0) {
-            totalBlockDelta = totalBlockDelta.add(
-                block.number.sub(lastRewardBlock).mul(totalEligiblePools)
-            );
-        }
-
         // update reward block
         lastRewardBlock = block.number;
         // add token to pids
@@ -429,9 +425,8 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         // stakedToken now non-withrawable by admins
         _blacklistedAdminWithdraw[stakedToken] = true;
         // update total pool points
+        uint256 rewardDebt = rewardsPerAllocPoint.mul(totalAllocPoint);
         totalAllocPoint = totalAllocPoint.add(allocPoint);
-        // update eligible pools to factor into block delta
-        totalEligiblePools = totalEligiblePools.add(1);
 
         // Add new pool
         poolInfo.push(
@@ -443,7 +438,8 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
                 totalStaked: 0,
                 rewardsPerShare: 0,
                 vipAmount: vipAmount,
-                stakingFee: stakingFee
+                stakingFee: stakingFee,
+                rewardDebt: rewardDebt
             })
         );
 
@@ -467,27 +463,11 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
     }
 
     // Governance - Set Pool Allocation Points, generally should be called withUpdate = true
-    function setPoolAllocPoints(uint256 _pid, uint256 _allocPoint, bool withUpdate) external onlyGovernor {
+    function setPoolAllocPoints(uint256 _pid, uint256 _allocPoint) external onlyGovernor {
+        massUpdatePools();
+
         PoolInfo storage pool = poolInfo[_pid];
         require(pool.allocPoint != _allocPoint, "SetAllocPoints: No points change");
-
-        // update the pool on set points
-        if (withUpdate) {
-            _updatePool(_pid);
-        }
-
-        // if we are making the pool inactive, call withUpdate = true
-        // remove from eligibility if not done by user actions already
-        if (_allocPoint == 0 && pool.totalStaked != 0) {
-            totalEligiblePools = totalEligiblePools.sub(1);
-        }
-
-        // if we are reactivating the pool, call withUpdate = true
-        // re-add to eligibility if there is a stake, otherwise let the pool update itself
-        if (pool.allocPoint == 0 && pool.totalStaked > 0) {
-            totalEligiblePools = totalEligiblePools.add(1);
-            pool.lastRewardBlock = block.number;
-        }
 
         // update alloc points
         totalAllocPoint = totalAllocPoint.sub(pool.allocPoint).add(_allocPoint);
