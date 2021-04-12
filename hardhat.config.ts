@@ -49,12 +49,15 @@ const config: HardhatUserConfig = {
     user: 3,
     anystake: {
       1: "0x95EF77772BdAEF25B56ec5f210e02BdaAc40D144",
+      4: "0x9b90eF849E9B07b3f7cab85A4b44925511cB27cF",
     },
     regulator: {
       1: "0xbb10bC5a825F3F6b148bF83ED4b679c88ab27B54",
+      4: "0x43E042290c18d8Ae0B0F05355fC82e477f1579a9",
     },
     vault: {
       1: "0xDcD7CA4a0feBBF5dcF91499b603c1C073916f9a3",
+      4: "0x7b213Ee4ec0f3441926155716d683dc8b3a87aE3",
     },
     zero: "0x0000000000000000000000000000000000000000",
     uniswap: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
@@ -95,6 +98,8 @@ const config: HardhatUserConfig = {
     daiLp: "0xa478c2975ab1ea89e8196811f51a7b7ade33eb11",
     core: "0x62359ed7505efc61ff1d56fef82158ccaffa23d7",
     coreLp: "0x32Ce7e48debdccbFE0CD037Cc89526E4382cb81b",
+    ultra: "0xd13c7342e1ef687c5ad21b27c2b65d772cab5c8c",
+    ultraLp: "0x42d52847be255eacee8c3f96b3b223c0b3cc0438",
     token: {
       1: "0xB6eE603933E024d8d53dDE3faa0bf98fE2a3d6f1",
       4: "0xB571d40e4A7087C1B73ce6a3f29EaDfCA022C5B2",

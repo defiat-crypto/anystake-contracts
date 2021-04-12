@@ -5,31 +5,24 @@ import {
   IERC20,
   VariableDecimalToken,
 } from "../typechain";
+import { getAnyStakeV2, getERC20At } from "../utils";
 
 const main = async () => {
-  const { mastermind, tokenLp, pointsLp } = await getNamedAccounts();
-  const VarToken = (await ethers.getContract(
-    "VariableDecimalToken",
-    mastermind
-  )) as VariableDecimalToken;
-  const FeeToken = (await ethers.getContract(
-    "FeeOnTransferToken",
-    mastermind
-  )) as FeeOnTransferToken;
+  const {
+    mastermind,
+    token,
+    tokenLp,
+    pointsLp,
+    feeToken,
+    varToken,
+  } = await getNamedAccounts();
 
-  const tokens = [tokenLp, pointsLp, VarToken.address, FeeToken.address];
+  const tokens = [token, tokenLp, pointsLp, varToken, feeToken];
 
   let pid = 0;
   for (let token of tokens) {
-    const Token = (await ethers.getContractAt(
-      "IERC20",
-      token,
-      mastermind
-    )) as IERC20;
-    const AnyStake = (await ethers.getContract(
-      "AnyStake",
-      mastermind
-    )) as AnyStake;
+    const Token = await getERC20At(token, mastermind);
+    const AnyStake = await getAnyStakeV2(mastermind);
 
     const balance = await Token.balanceOf(mastermind);
     await Token.approve(AnyStake.address, balance).then((tx) => tx.wait());

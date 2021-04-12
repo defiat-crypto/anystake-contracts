@@ -75,11 +75,11 @@ const func: DeployFunction = async ({
     }
 
     // migrate the vault
-    await Vault.setMigrator(result.address).then((tx) => tx.wait());
+    await Vault.setMigrator(VaultV2.address).then((tx) => tx.wait());
     await Vault.migrate().then((tx) => tx.wait());
 
     // set regulator vault and re-activate
-    await Regulator.setVault(result.address).then((tx) => tx.wait());
+    await Regulator.setVault(VaultV2.address).then((tx) => tx.wait());
     await Regulator.setActive(true).then((tx) => tx.wait());
     console.log("Regulator Vault Set");
 

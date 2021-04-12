@@ -239,6 +239,8 @@ export const getAnyStakeV2DeploymentPools = async () => {
     daiLp,
     core,
     coreLp,
+    ultra,
+    ultraLp,
   } = await getNamedAccounts();
 
   return [
@@ -385,6 +387,13 @@ export const getAnyStakeV2DeploymentPools = async () => {
     {
       token: core,
       lpToken: coreLp,
+      allocPoint: 100,
+      vipAmount: ethers.utils.parseEther("50"),
+      feeAmount: 50,
+    },
+    {
+      token: ultra,
+      lpToken: ultraLp,
       allocPoint: 100,
       vipAmount: ethers.utils.parseEther("50"),
       feeAmount: 50,

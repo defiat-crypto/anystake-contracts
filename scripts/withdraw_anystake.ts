@@ -1,33 +1,22 @@
-import { ethers, getNamedAccounts } from "hardhat";
-import {
-  AnyStake,
-  FeeOnTransferToken,
-  VariableDecimalToken,
-} from "../typechain";
+import { getNamedAccounts } from "hardhat";
+import { getAnyStake, getAnyStakeV2 } from "../utils";
 
 const main = async () => {
-  const { mastermind, tokenLp, pointsLp } = await getNamedAccounts();
-  const VarToken = (await ethers.getContract(
-    "VariableDecimalToken",
-    mastermind
-  )) as VariableDecimalToken;
-  const FeeToken = (await ethers.getContract(
-    "FeeOnTransferToken",
-    mastermind
-  )) as FeeOnTransferToken;
+  const { mastermind } = await getNamedAccounts();
+  const AnyStake = await getAnyStakeV2(mastermind);
 
-  const tokens = [tokenLp, pointsLp, VarToken.address, FeeToken.address];
+  const poolLength = (await AnyStake.poolLength()).toNumber();
 
-  let pid = 0;
-  for (let token of tokens) {
-    const AnyStake = (await ethers.getContract(
-      "AnyStake",
-      mastermind
-    )) as AnyStake;
-
+  for (let pid = 1; pid < poolLength; pid++) {
     const userInfo = await AnyStake.userInfo(pid, mastermind);
-    await AnyStake.withdraw(pid, userInfo.amount).then((tx) => tx.wait());
-    pid++;
+    if (userInfo.amount.gt(0)) {
+      await AnyStake.withdraw(pid, userInfo.amount).then((tx) => tx.wait());
+    }
+  }
+
+  const userInfo = await AnyStake.userInfo(0, mastermind);
+  if (userInfo.amount.gt(0)) {
+    await AnyStake.withdraw(0, userInfo.amount).then((tx) => tx.wait());
   }
 };
 

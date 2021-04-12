@@ -19,19 +19,15 @@ export const setupAnyStakeMigration = async () => {
     console.log(pid, "Migration Setup");
     await AnyStake.updatePool(pid).then((tx) => tx.wait());
     await AnyStake.setPoolAllocPoints(pid, 0).then((tx) => tx.wait());
-    const vipAmount = (await AnyStake.poolInfo(pid)).vipAmount;
-    if (vipAmount.gt(0)) {
-      await AnyStake.setPoolVipAmount(pid, 0).then((tx) => tx.wait());
-    }
-
-    // if (pid > 2) {
-    //   await AnyStake.setPoolChargeFee(pid, 0).then((tx) => tx.wait());
+    // const vipAmount = (await AnyStake.poolInfo(pid)).vipAmount;
+    // if (vipAmount.gt(0)) {
+    //   await AnyStake.setPoolVipAmount(pid, 0).then((tx) => tx.wait());
     // }
-  }
-  // await AnyStake.setMigrator(AnyStakeV2.address).then((tx) => tx.wait());
 
-  // await Vault.setAnyStake(AnyStakeV2.address).then((tx) => tx.wait());
-  // await AnyStakeV2.initialize(Vault.address).then((tx) => tx.wait());
+    if (pid > 2) {
+      await AnyStake.setPoolChargeFee(pid, 0).then((tx) => tx.wait());
+    }
+  }
 };
 
 export const setupRegulatorMigration = async () => {

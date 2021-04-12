@@ -13,7 +13,10 @@ import {
   getAccount,
   getERC20At,
 } from "../utils";
-import { getAnyStakeDeploymentPools } from "../utils/pools";
+import {
+  getAnyStakeDeploymentPools,
+  getAnyStakeV2DeploymentPools,
+} from "../utils/pools";
 import { setupAnyStakeMigration } from "../utils/migrate";
 import { advanceNBlocks } from "../utils/time";
 
@@ -110,7 +113,7 @@ const setupStaking = async (accounts: Accounts) => {
   await buyToken(points, ethers.utils.parseEther("10"), alpha.address);
 
   let pid = 0;
-  const pools = await getAnyStakeDeploymentPools();
+  const pools = await getAnyStakeV2DeploymentPools();
   for (const pool of pools) {
     if (pid == 5) {
       await depositForWeth(alpha.address, ethers.utils.parseEther("1"));
