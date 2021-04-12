@@ -184,7 +184,7 @@ const config: HardhatUserConfig = {
       url: process.env.ALCHEMY_RINKEBY_KEY || "",
     },
     mainnet: {
-      gasPrice: 240000000000,
+      gasPrice: 130000000000,
       accounts: process.env.DEPLOYER_MAIN_KEY
         ? [`0x${process.env.DEPLOYER_MAIN_KEY}`]
         : undefined,

@@ -1,10 +1,4 @@
-import { ethers, getNamedAccounts } from "hardhat";
-import {
-  AnyStake,
-  FeeOnTransferToken,
-  IERC20,
-  VariableDecimalToken,
-} from "../typechain";
+import { getNamedAccounts } from "hardhat";
 import { getAnyStakeV2, getERC20At } from "../utils";
 
 const main = async () => {
