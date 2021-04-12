@@ -164,12 +164,15 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         uint256 totalClaimable;
         uint256 length = poolInfo.length;
         for (uint256 pid = 0; pid < length; pid++) {
+            PoolInfo storage pool = poolInfo[pid];
             UserInfo storage user = userInfo[pid][msg.sender];
             if (user.lastRewardBlock < block.number && user.amount > 0) {
                 _updatePool(pid);
                 uint256 rewards = pending(pid, msg.sender);
                 if (rewards > 0) {
                     totalClaimable = totalClaimable.add(rewards);
+                    user.rewardDebt = user.amount.mul(pool.rewardsPerShare).div(1e18);
+                    user.lastRewardBlock = block.number;
                     emit Claim(msg.sender, pid, rewards);
                 }
             }
@@ -418,8 +421,9 @@ contract AnyStakeV2 is IAnyStakeMigrator, IAnyStake, AnyStakeUtils {
         // stakedToken now non-withrawable by admins
         _blacklistedAdminWithdraw[stakedToken] = true;
         // update total pool points
-        uint256 rewardDebt = rewardsPerAllocPoint.mul(totalAllocPoint).div(1e18);
         totalAllocPoint = totalAllocPoint.add(allocPoint);
+        // find reward debt for the pool
+        uint256 rewardDebt = rewardsPerAllocPoint.mul(allocPoint).div(1e18);
 
         // Add new pool
         poolInfo.push(
