@@ -135,7 +135,7 @@ contract AnyStakeRegulatorV2 is IAnyStakeMigrator, IAnyStakeRegulator, AnyStakeU
         }
 
         if (rewardAmount > 0) {
-            pendingRewards = pendingRewards.add(rewardAmount);
+            rewardsPerShare = rewardsPerShare.add(rewardAmount.mul(1e18).div(totalShares));
         }
     }
 
@@ -153,10 +153,8 @@ contract AnyStakeRegulatorV2 is IAnyStakeMigrator, IAnyStakeRegulator, AnyStakeU
         // calculate rewards, calls addReward()
         IAnyStakeVault(vault).calculateRewards();
 
-        // update rewardsPerShare            
-        rewardsPerShare = rewardsPerShare.add(pendingRewards.mul(1e18).div(totalShares));
+        // update reward block            
         lastRewardBlock = block.number;
-        pendingRewards = 0;
     }
 
     function claim() external override activated NoReentrant(msg.sender) {
@@ -175,10 +173,11 @@ contract AnyStakeRegulatorV2 is IAnyStakeMigrator, IAnyStakeRegulator, AnyStakeU
         // get pending rewards
         uint256 rewards = pending(_user);
         // transfer DFT rewards from Vault
-        if (rewards != 0) {
-            IAnyStakeVault(vault).distributeRewards(_user, rewards);
+        if (rewards == 0) {
+            return;
         }
         
+        IAnyStakeVault(vault).distributeRewards(_user, rewards);
         emit Claim(_user, rewards);
     }
 
@@ -246,6 +245,7 @@ contract AnyStakeRegulatorV2 is IAnyStakeMigrator, IAnyStakeRegulator, AnyStakeU
 
         _claim(_user);
 
+        totalShares = totalShares.sub(balance);
         user.amount = 0;
         user.rewardDebt = 0;
         user.lastRewardBlock = block.number;
@@ -306,7 +306,7 @@ contract AnyStakeRegulatorV2 is IAnyStakeMigrator, IAnyStakeRegulator, AnyStakeU
         view
         returns (uint256)
     {
-        UserInfo memory user = userInfo[_user];
+        UserInfo storage user = userInfo[_user];
         return user.amount.mul(rewardsPerShare).div(1e18).sub(user.rewardDebt);
     }
 
