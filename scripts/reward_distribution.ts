@@ -7,7 +7,7 @@ import { Event } from "@ethersproject/contracts";
 
 const DECIMALS = BigNumber.from(10).pow(18);
 const TOTAL_DISTRO = BigNumber.from(3680).mul(DECIMALS);
-const GAS_SUBSIDY = BigNumber.from(0).mul(DECIMALS);
+const GAS_SUBSIDY = BigNumber.from(3000).mul(DECIMALS);
 const TOTAL_ALLOC_POINTS = 6200;
 const START_BLOCK = 12175584;
 const END_BLOCK = 12255351;
@@ -285,7 +285,7 @@ const findEligibleUserShares = async (users: any, totals: any) => {
       output.push(`${user},${userShares[user]}`);
     });
     fs.writeFileSync(
-      path.resolve(__dirname, "../files/distribution.csv"),
+      path.resolve(__dirname, "../files/distribution-subsidy.csv"),
       output.join("\n")
     );
   }
