@@ -1,5 +1,5 @@
 import { BigNumber } from "@ethersproject/bignumber";
-import { getNamedAccounts } from "hardhat";
+import { ethers, getNamedAccounts } from "hardhat";
 import { getAnyStake, getAnyStakeV2, getVault } from "../utils";
 import fs from "fs";
 import path from "path";
@@ -282,7 +282,7 @@ const findEligibleUserShares = async (users: any, totals: any) => {
   if (WRITE_FILE) {
     const output = ["User,Amount"];
     Object.keys(userShares).forEach((user) => {
-      output.push(`${user},${userShares[user]}`);
+      output.push(`${user},${ethers.utils.formatUnits(userShares[user])}`);
     });
     fs.writeFileSync(
       path.resolve(__dirname, "../files/distribution-subsidy.csv"),
